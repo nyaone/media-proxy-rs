@@ -18,7 +18,7 @@ fn prepare_client(ua: &str) -> Result<Client, reqwest::Error> {
     Ok(client)
 }
 
-const SIZE_LIMIT: u64 = 100_000_000; // 100MB // todo: make this configurable
+const SIZE_LIMIT: u64 = 100_000_000; // 100MB // todo: make this configurable (through some env at init I guess)
 
 pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
     debug!("Downloading file: {url} with UserAgent: {ua}");
