@@ -1,5 +1,8 @@
+use image::{ImageReader, ImageDecoder, DynamicImage, ImageFormat};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::io::Cursor;
+use std::path::Path;
 use http_body_util::{Empty, Full};
 use bytes::Bytes;
 use hyper::{Request, Response};
@@ -36,7 +39,7 @@ fn response_raw(bytes: Bytes, ct: Option<String>) -> Response<BoxBody<Bytes, hyp
     response
 }
 
-async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<image::DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
+async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -80,7 +83,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
                 FileDownloadError::InvalidStatusCode(status_code) => {
                     warn!("Invalid status code: {url}, {status_code}");
                     *response.status_mut() = status_code; // inherit status code
-                    // todo: should we pass the exact same body from remote server?
+                    // should we pass the exact same body from remote server?
                     // note: misskey will return the dummy.png if the status code is 404, but we don't implement that feature here
                 }
                 FileDownloadError::RequestError(err) => {
@@ -96,25 +99,42 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     // Check whether the file is an image (don't trust the content-type header or filename)
     // hint: misskey need to detect whether the file is manipulatable manually,
     // but here we are using image crate's format guessing feature
-    let downloaded_image = match image::ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format() {
-        Ok(img) => match img.decode() {
-            Ok(img) => img,
-            Err(err) => {
-                // failed to decode image, return raw bytes
-                error!("Failed to decode image: {url}, {err}");
-                return Err(response_raw(downloaded_file.0, downloaded_file.1));
+    let downloaded_image = match ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format() {
+        Ok(img_reader) => {
+            // Check if is an unsupported format (like animated ones, usually gif)
+            if let Some(format) = img_reader.format() {
+                if format == ImageFormat::Gif {
+                    // Unable to process for now // todo: find a way to handle this properly
+                    warn!("Unable to process gif for now, provide as-is: {url}");
+                    return Err(response_raw(downloaded_file.0, downloaded_file.1));
+                }
+            }
+
+            let mut img_decoder = img_reader.into_decoder().unwrap();
+            let ori = img_decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+            match DynamicImage::from_decoder(img_decoder) {
+                Ok(mut img) => {
+                    // apply the rotation orientation from exif data
+                    img.apply_orientation(ori);
+                    img
+                },
+                Err(err) => {
+                    // return raw bytes
+                    error!("Failed to decode image: {url}, {err}");
+                    return Err(response_raw(downloaded_file.0, downloaded_file.1));
+                }
             }
         },
         Err(err) => {
-            // failed to open image, return raw bytes
-            error!("Failed to open image: {url}, {err}");
+            // return raw bytes
+            error!("Failed to create image reader: {url}, {err}");
             return Err(response_raw(downloaded_file.0, downloaded_file.1));
         }
     };
     Ok(downloaded_image)
 }
 
-fn shrink_image(image: image::DynamicImage, width: u32, height: u32) -> image::DynamicImage {
+fn shrink_image(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
     if image.width() > width || image.height() > height {
         image.thumbnail(width, height)
     } else {
@@ -141,11 +161,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     /******************************************/
 
     // Check target format
-    let mut target_format = if path.ends_with(".png") {
-        image::ImageFormat::Png
-    } else {
-        image::ImageFormat::WebP // Use as a fallback as webp has been supported widely
-    };
+    let mut target_format = ImageFormat::from_extension(Path::new(path).extension().and_then(OsStr::to_str).unwrap_or("")).unwrap_or(ImageFormat::WebP);
 
     // Manipulate image (this may change the target format)
     if query.contains_key("emoji") || query.contains_key("avatar") {
@@ -160,18 +176,17 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
         downloaded_image = shrink_image(downloaded_image, target_size, target_size);
         if query.contains_key("static") {
             // Prevent animation by only keep the first frame
-            // Not sure how to use this library correctly
-            // todo
-            target_format = image::ImageFormat::WebP;
+            // I actually made it wrong 😅
+            // The library will by default keep only static image,
+            // I'll need to find out how to server dynamic images.
+            target_format = ImageFormat::WebP;
         }
     } else if query.contains_key("static") {
         downloaded_image = shrink_image(downloaded_image, 498, 422);
         // from literary meaning, this operation should also convert to static image,
         // but misskey doesn't do that, so we neither.
-        // todo: Should also auto rotate, but don't know how to implement this
     } else if query.contains_key("preview") {
         downloaded_image = shrink_image(downloaded_image, 200, 200);
-        // todo: Should also auto rotate, but don't know how to implement this
     } else if query.contains_key("badge") {
         // Here's the thing: I'm not sure what this function is for,
         // and neither can I implement this easily as many advanced operations
