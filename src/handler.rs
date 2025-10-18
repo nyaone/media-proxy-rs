@@ -27,7 +27,7 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
         .boxed()
 }
 
-fn response_raw(bytes: Bytes, ct: Option<String>) -> Response<BoxBody<Bytes, hyper::Error>> {
+fn response_raw((bytes, ct): (Bytes, Option<String>)) -> Response<BoxBody<Bytes, hyper::Error>> {
     let mut response = Response::new(
         Full::new(bytes)
         .map_err(|never| match never {}).
@@ -37,6 +37,33 @@ fn response_raw(bytes: Bytes, ct: Option<String>) -> Response<BoxBody<Bytes, hyp
         response.headers_mut().insert(http::header::CONTENT_TYPE, ct.parse().unwrap());
     }
     response
+}
+
+enum DecodeImageError {
+    Unsupported,
+    ImageError(image::ImageError),
+}
+fn decode_image(url: &String, downloaded_file: &(Bytes, Option<String>)) -> Result<DynamicImage, DecodeImageError> {
+    // Check whether the file is an image (don't trust the content-type header or filename)
+    // hint: misskey need to detect whether the file is manipulatable manually,
+    // but here we are using image crate's format guessing feature
+    let img_reader = ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format().unwrap();
+
+    // Check if is an unsupported format (like animated ones, usually gif)
+    if let Some(format) = img_reader.format() {
+        if format == ImageFormat::Gif {
+            // Unable to process for now // todo: find a way to handle this properly
+            warn!("Unable to process gif for now, provide as-is: {url}");
+            return Err(DecodeImageError::Unsupported);
+        }
+    }
+
+    let mut img_decoder = img_reader.into_decoder().map_err(DecodeImageError::ImageError)?;
+
+    let ori = img_decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut downloaded_image = DynamicImage::from_decoder(img_decoder).map_err(DecodeImageError::ImageError)?;
+    downloaded_image.apply_orientation(ori);
+    Ok(downloaded_image)
 }
 
 async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
@@ -96,42 +123,25 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
         }
     };
 
-    // Check whether the file is an image (don't trust the content-type header or filename)
-    // hint: misskey need to detect whether the file is manipulatable manually,
-    // but here we are using image crate's format guessing feature
-    let downloaded_image = match ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format() {
-        Ok(img_reader) => {
-            // Check if is an unsupported format (like animated ones, usually gif)
-            if let Some(format) = img_reader.format() {
-                if format == ImageFormat::Gif {
-                    // Unable to process for now // todo: find a way to handle this properly
-                    warn!("Unable to process gif for now, provide as-is: {url}");
-                    return Err(response_raw(downloaded_file.0, downloaded_file.1));
-                }
-            }
-
-            let mut img_decoder = img_reader.into_decoder().unwrap();
-            let ori = img_decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
-            match DynamicImage::from_decoder(img_decoder) {
-                Ok(mut img) => {
-                    // apply the rotation orientation from exif data
-                    img.apply_orientation(ori);
-                    img
-                },
-                Err(err) => {
-                    // return raw bytes
-                    error!("Failed to decode image: {url}, {err}");
-                    return Err(response_raw(downloaded_file.0, downloaded_file.1));
-                }
-            }
-        },
-        Err(err) => {
-            // return raw bytes
-            error!("Failed to create image reader: {url}, {err}");
-            return Err(response_raw(downloaded_file.0, downloaded_file.1));
+    // Check possible mimetype of downloaded file
+    if let Some(ct) = downloaded_file.1.as_ref() {
+        if !ct.starts_with("image/") {
+            // Not image, return raw bytes
+            warn!("Not an image ({ct}): {url}");
+            return Err(response_raw(downloaded_file));
         }
-    };
-    Ok(downloaded_image)
+    }
+
+    // Decode image
+    match decode_image(url, &downloaded_file) {
+        Ok(decoded_image) => Ok(decoded_image),
+        Err(err) => {
+            if let DecodeImageError::ImageError(err) = err {
+                error!("Failed to decode image: {url}, {err}");
+            } // else is unsupported, which has already been reported
+            Err(response_raw(downloaded_file))
+        }
+    }
 }
 
 fn shrink_image(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
