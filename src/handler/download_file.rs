@@ -1,3 +1,4 @@
+use futures_util::stream::StreamExt;
 use bytes::Bytes;
 use reqwest::header::{HeaderMap, USER_AGENT, REFERER, CONTENT_TYPE, CONTENT_LENGTH};
 use reqwest::{Client, StatusCode};
@@ -58,7 +59,15 @@ pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result
 
     // Nothing wrong, let's download the entire response body and return
     let ct = resp.headers().get(CONTENT_TYPE).map(|ct| ct.to_str().unwrap().to_string());
-    Ok((resp.bytes().await.map_err(|e| FileDownloadError::RequestError(e))?, ct))
+    let mut limited_buf = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        limited_buf.extend(chunk.map_err(FileDownloadError::RequestError)?);
+        if limited_buf.len() > SIZE_LIMIT as usize {
+            return Err(FileDownloadError::Oversize);
+        }
+    }
+    Ok((Bytes::from(limited_buf), ct))
 }
 
 #[cfg(test)]
