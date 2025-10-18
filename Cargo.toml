@@ -1,0 +1,22 @@
+[package]
+name = "media-proxy-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# http server
+hyper = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
+
+# image processing
+image = { version = "0.25", features = ["default-formats"]}
+imageproc = "0.25"
+
+# utils
+url = "2"
+reqwest = { version = "0.12", features = ["default"] }
+const_format = "0.2"
+bytes = "1"
+http = "1"
