@@ -24,7 +24,7 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
         .boxed()
 }
 
-fn response_raw(bytes: Bytes, ct: Option<String>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+fn response_raw(bytes: Bytes, ct: Option<String>) -> Response<BoxBody<Bytes, hyper::Error>> {
     let mut response = Response::new(
         Full::new(bytes)
         .map_err(|never| match never {}).
@@ -33,17 +33,17 @@ fn response_raw(bytes: Bytes, ct: Option<String>) -> Result<Response<BoxBody<Byt
     if let Some(ct) = ct {
         response.headers_mut().insert(http::header::CONTENT_TYPE, ct.parse().unwrap());
     }
-    Ok(response)
+    response
 }
 
-async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<image::DynamicImage, Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error>> {
+async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<image::DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
         warn!("Request missing url");
         let mut response = Response::new(empty());
         *response.status_mut() = StatusCode::BAD_REQUEST;
-        return Err(Ok(response));
+        return Err(response);
     }
 
     // Check if UserAgent is valid
@@ -52,7 +52,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
         warn!("Request missing UserAgent");
         let mut response = Response::new(full("User-Agent is required"));
         *response.status_mut() = StatusCode::BAD_REQUEST;
-        return Err(Ok(response));
+        return Err(response);
     }
 
     let ua = ua.unwrap(); // Shadow the parameter value
@@ -61,7 +61,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
         warn!("Recursive proxying from {ua}");
         let mut response = Response::new(full("Refusing to proxy a request from another proxy"));
         *response.status_mut() = StatusCode::FORBIDDEN;
-        return Err(Ok(response));
+        return Err(response);
     }
 
     // Start download
@@ -89,7 +89,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
                     *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 }
             }
-            return Err(Ok(response));
+            return Err(response);
         }
     };
 
@@ -133,7 +133,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     /**********************************/
     let mut downloaded_image = match download_image(query.get("url"), query.get("host"), ua).await {
         Ok(value) => value,
-        Err(value) => return value,
+        Err(value) => return Ok(value),
     };
 
     /******************************************/
