@@ -6,6 +6,7 @@ use hyper::{Request, Response};
 use url::Url;
 use hyper::{StatusCode};
 use http_body_util::{combinators::BoxBody, BodyExt};
+use tracing::{warn, error};
 
 mod download_file;
 use download_file::{download_file, FileDownloadError};
@@ -39,6 +40,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
+        warn!("Request missing url");
         let mut response = Response::new(empty());
         *response.status_mut() = StatusCode::BAD_REQUEST;
         return Err(Ok(response));
@@ -47,6 +49,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     // Check if UserAgent is valid
     if ua.is_none() {
         // Missing UserAgent
+        warn!("Request missing UserAgent");
         let mut response = Response::new(full("User-Agent is required"));
         *response.status_mut() = StatusCode::BAD_REQUEST;
         return Err(Ok(response));
@@ -55,6 +58,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     let ua = ua.unwrap(); // Shadow the parameter value
     if ua.to_lowercase().contains("misskey/") {
         // Recursive proxying
+        warn!("Recursive proxying from {ua}");
         let mut response = Response::new(full("Refusing to proxy a request from another proxy"));
         *response.status_mut() = StatusCode::FORBIDDEN;
         return Err(Ok(response));
@@ -69,17 +73,19 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
             match e {
                 FileDownloadError::Oversize => {
                     // too large to process, redirect instead
+                    warn!("File too large: {url}");
                     *response.status_mut() = StatusCode::FOUND;
                     response.headers_mut().insert("Location", url.parse().unwrap());
                 }
                 FileDownloadError::InvalidStatusCode(status_code) => {
+                    warn!("Invalid status code: {url}, {status_code}");
                     *response.status_mut() = status_code; // inherit status code
                     // todo: should we pass the exact same body from remote server?
                     // note: misskey will return the dummy.png if the status code is 404, but we don't implement that feature here
                 }
-                FileDownloadError::RequestError(_err) => {
+                FileDownloadError::RequestError(err) => {
                     // request failed, return 500
-                    // todo: log error
+                    error!("Failed to download file: {url}, {err}");
                     *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 }
             }
@@ -93,15 +99,15 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     let downloaded_image = match image::ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format() {
         Ok(img) => match img.decode() {
             Ok(img) => img,
-            Err(_err) => {
+            Err(err) => {
                 // failed to decode image, return raw bytes
-                // todo: log error
-                return Err(response_raw(downloaded_file.0, downloaded_file.1)); // todo: can we merge these 2 match clauses?
+                error!("Failed to decode image: {url}, {err}");
+                return Err(response_raw(downloaded_file.0, downloaded_file.1));
             }
         },
-        Err(_err) => {
+        Err(err) => {
             // failed to open image, return raw bytes
-            // todo: log error
+            error!("Failed to open image: {url}, {err}");
             return Err(response_raw(downloaded_file.0, downloaded_file.1));
         }
     };
@@ -185,9 +191,9 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
 
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
-    if let Err(_err) = downloaded_image.write_to(&mut Cursor::new(&mut bytes), target_format) {
+    if let Err(err) = downloaded_image.write_to(&mut Cursor::new(&mut bytes), target_format) {
         // Image encoder failed
-        // todo: log error
+        error!("Failed to encode image: {err}");
         let mut response = Response::new(empty());
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return Ok(response);

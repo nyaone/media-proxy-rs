@@ -1,7 +1,7 @@
 use bytes::Bytes;
-
 use reqwest::header::{HeaderMap, USER_AGENT, REFERER, CONTENT_TYPE};
 use reqwest::{Client, StatusCode};
+use tracing::{debug, warn};
 
 pub enum FileDownloadError {
     Oversize,
@@ -18,6 +18,8 @@ fn prepare_client(ua: &str) -> Result<Client, reqwest::Error> {
 }
 
 pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
+    debug!("Downloading file: {url} with UserAgent: {ua}");
+
     let client = prepare_client(&ua).map_err(|e| FileDownloadError::RequestError(e))?;
 
     // First try: direct download
@@ -25,6 +27,7 @@ pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result
 
     // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
     if resp.status().is_client_error() {
+        warn!("Direct download failed {} {}, retrying with host specified", resp.status(), url);
         if let Some(host) = host {
             let mut additional_headers = HeaderMap::new();
             additional_headers.insert(REFERER, host.parse().unwrap());
@@ -54,7 +57,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_file() {
-        let file = download_file("https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png", None, "MediaProxyR@Debug").await;
+        let file = download_file("https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png", None, "MediaProxyRS@Debug").await;
         assert!(file.is_ok());
         if let Ok((bytes, ct)) = file {
             assert!(bytes.len() > 0);

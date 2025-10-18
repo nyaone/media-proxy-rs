@@ -3,14 +3,14 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
+use tracing::{info, error};
 
 mod handler;
 
-pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Get address to listen from env or default
-    let env_listen = std::env::var("LISTEN").unwrap_or("127.0.0.1:3000".to_string());
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-    let addr: SocketAddr = env_listen.parse()?;
+pub async fn start_server(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("MediaProxyRS@NyaOne #{VERSION} starting...");
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
     let listener = TcpListener::bind(addr).await?;
@@ -31,7 +31,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
                 .serve_connection(io, service_fn(handler::handle))
                 .await
             {
-                eprintln!("Error serving connection: {:?}", err);
+                error!("Error serving connection: {:?}", err);
             }
         });
     }
@@ -39,5 +39,15 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
 
 #[tokio::main]
 async fn main() {
-    start_server().await.expect("Server start failed");
+    // Prepare logger
+    tracing_subscriber::fmt::init();
+
+    // Get address to listen from env or default
+    let env_listen = std::env::var("LISTEN").unwrap_or("127.0.0.1:3000".to_string());
+
+    // Parse to socket address
+    let addr: SocketAddr = env_listen.parse().expect("Invalid listen address");
+
+    // Start server
+    start_server(addr).await.expect("Server start failed");
 }

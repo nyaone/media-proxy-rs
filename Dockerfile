@@ -35,6 +35,7 @@ USER appuser
 # Copy the executable from the "build" stage.
 COPY --from=build /bin/server /bin/
 
+ENV RUST_LOG="error"
 ENV LISTEN="0.0.0.0:3000"
 
 EXPOSE 3000
