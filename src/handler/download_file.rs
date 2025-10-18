@@ -49,8 +49,10 @@ pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result
             return Err(FileDownloadError::Oversize);
         }
     } else if let Some(size_length) = resp.headers().get(CONTENT_LENGTH) {
-        if size_length.to_str().unwrap().parse::<u64>().unwrap() > SIZE_LIMIT {
-            return Err(FileDownloadError::Oversize);
+        if let Ok(size) = size_length.to_str().unwrap().parse::<u64>() {
+            if size > SIZE_LIMIT {
+                return Err(FileDownloadError::Oversize);
+            }
         }
     }
 
