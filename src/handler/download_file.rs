@@ -22,10 +22,10 @@ const SIZE_LIMIT: u64 = 100_000_000; // 100MB // todo: make this configurable
 pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
     debug!("Downloading file: {url} with UserAgent: {ua}");
 
-    let client = prepare_client(&ua).map_err(|e| FileDownloadError::RequestError(e))?;
+    let client = prepare_client(&ua).map_err(FileDownloadError::RequestError)?;
 
     // First try: direct download
-    let mut resp = client.get(url).send().await.map_err(|e| FileDownloadError::RequestError(e))?;
+    let mut resp = client.get(url).send().await.map_err(FileDownloadError::RequestError)?;
 
     // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
     if resp.status().is_client_error() {
@@ -34,7 +34,7 @@ pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result
             let mut additional_headers = HeaderMap::new();
             additional_headers.insert(REFERER, host.parse().unwrap());
 
-            resp = client.get(url).headers(additional_headers).send().await.map_err(|e| FileDownloadError::RequestError(e))?;
+            resp = client.get(url).headers(additional_headers).send().await.map_err(FileDownloadError::RequestError)?;
         }
     }
 
