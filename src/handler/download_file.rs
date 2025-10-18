@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use reqwest::header::{HeaderMap, USER_AGENT, REFERER, CONTENT_TYPE};
+use reqwest::header::{HeaderMap, USER_AGENT, REFERER, CONTENT_TYPE, CONTENT_LENGTH};
 use reqwest::{Client, StatusCode};
 use tracing::{debug, warn};
 
@@ -16,6 +16,8 @@ fn prepare_client(ua: &str) -> Result<Client, reqwest::Error> {
     let client = Client::builder().default_headers(default_headers).build()?;
     Ok(client)
 }
+
+const SIZE_LIMIT: u64 = 100_000_000; // 100MB // todo: make this configurable
 
 pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
     debug!("Downloading file: {url} with UserAgent: {ua}");
@@ -42,8 +44,14 @@ pub async fn download_file(url: &str, host: Option<&String>, ua: &str) -> Result
     }
 
     // Check response size (content length)
-    if resp.content_length().is_none_or(|l| l > 100_000_000) { // 100MB // todo: make this configurable
-        return Err(FileDownloadError::Oversize);
+    if let Some(size) = resp.content_length() {
+        if size > SIZE_LIMIT {
+            return Err(FileDownloadError::Oversize);
+        }
+    } else if let Some(size_length) = resp.headers().get(CONTENT_LENGTH) {
+        if size_length.to_str().unwrap().parse::<u64>().unwrap() > SIZE_LIMIT {
+            return Err(FileDownloadError::Oversize);
+        }
     }
 
     // Nothing wrong, let's download the entire response body and return
