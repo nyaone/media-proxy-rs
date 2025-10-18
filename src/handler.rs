@@ -43,11 +43,11 @@ enum DecodeImageError {
     Unsupported,
     ImageError(image::ImageError),
 }
-fn decode_image(url: &String, downloaded_file: &(Bytes, Option<String>)) -> Result<DynamicImage, DecodeImageError> {
+fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<DynamicImage, DecodeImageError> {
     // Check whether the file is an image (don't trust the content-type header or filename)
     // hint: misskey need to detect whether the file is manipulatable manually,
     // but here we are using image crate's format guessing feature
-    let img_reader = ImageReader::new(Cursor::new(downloaded_file.0.as_ref())).with_guessed_format().unwrap();
+    let img_reader = ImageReader::new(Cursor::new(downloaded_bytes)).with_guessed_format().unwrap();
 
     // Check if is an unsupported format (like animated ones, usually gif)
     if let Some(format) = img_reader.format() {
@@ -133,7 +133,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     }
 
     // Decode image
-    match decode_image(url, &downloaded_file) {
+    match decode_image(url, &downloaded_file.0) {
         Ok(decoded_image) => Ok(decoded_image),
         Err(err) => {
             if let DecodeImageError::ImageError(err) = err {
