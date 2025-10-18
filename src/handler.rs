@@ -3,7 +3,7 @@ use std::io::Cursor;
 use http_body_util::{Empty, Full};
 use bytes::Bytes;
 use hyper::{Request, Response};
-use url::Url;
+use url::form_urlencoded;
 use hyper::{StatusCode};
 use http_body_util::{combinators::BoxBody, BodyExt};
 use tracing::{warn, error};
@@ -217,12 +217,7 @@ pub async fn handle(req: Request<hyper::body::Incoming>) -> Result<Response<BoxB
         "/" => Ok(Response::new(full("OK"))), // healthcheck
         proxy_filename => proxy_image(
             &proxy_filename[1..],
-            // uri is a relative path, which cannot be parsed directly
-            Url::parse(&format!("https://nya.one{}", uri))
-                .unwrap()
-                .query_pairs()
-                .into_owned()
-                .collect(),
+            form_urlencoded::parse(uri.query().unwrap_or("").as_bytes()).into_owned().collect(),
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())
         ).await,
     }
