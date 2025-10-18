@@ -241,7 +241,7 @@ pub async fn handle(req: Request<hyper::body::Incoming>) -> Result<Response<BoxB
     match uri.path() {
         "/" => Ok(Response::new(full("OK"))), // healthcheck
         proxy_filename => proxy_image(
-            &proxy_filename[1..],
+            &proxy_filename[1..], // remove the leading slash
             form_urlencoded::parse(uri.query().unwrap_or("").as_bytes()).into_owned().collect(),
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())
         ).await,
