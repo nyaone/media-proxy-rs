@@ -183,6 +183,10 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
             320
         };
         // Only shrink, not enlarge
+        // Also worth mentioning that misskey's resize on a non-square image is
+        // based on shorter edge to target (al lease that size),
+        // while our resize is based on the longer edge (at most).
+        // Not sure if this matters, but it worth another todo.
         downloaded_image = shrink_image(downloaded_image, target_size, target_size);
         if query.contains_key("static") {
             // Prevent animation by only keep the first frame
