@@ -144,7 +144,36 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     }
 }
 
-fn shrink_image(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
+fn shrink_outside(image: DynamicImage, size: u32) -> DynamicImage {
+    // image::math::resize_dimensions is not a public function,
+    // and we can't call image.thumbnail with fill parameter `true`,
+    // so we have to write the entire compare logic here.
+    // Luckily, misskey only performs this action with height and width the same.
+    let w = image.width();
+    let h = image.height();
+    if w > size && h > size {
+        // need to shrink
+
+        // init target sizes with input as default
+        let mut w2 = size;
+        let mut h2 = size;
+
+        // check which side needs expansion
+        if w > h {
+            w2 = (f64::from(size) * f64::from(w) / f64::from(h)).round() as u32;
+        } else {
+            h2 = (f64::from(size) * f64::from(h) / f64::from(w)).round() as u32;
+        }
+
+        // Do the shrinking
+        image.thumbnail_exact(w2, h2)
+    } else {
+        // keep as-is
+        image
+    }
+}
+
+fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
     if image.width() > width || image.height() > height {
         image.thumbnail(width, height)
     } else {
@@ -175,19 +204,13 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
 
     // Manipulate image (this may change the target format)
     if query.contains_key("emoji") || query.contains_key("avatar") {
-        // Actually, I'm not sure why misskey won't resize the image when not static,
-        // so let's change the action to make this behavior looks more proper
         let target_size = if query.contains_key("emoji") {
             128
         } else {
             320
         };
         // Only shrink, not enlarge
-        // Also worth mentioning that misskey's resize on a non-square image is
-        // based on shorter edge to target (al lease that size),
-        // while our resize is based on the longer edge (at most).
-        // Not sure if this matters, but it worth another todo.
-        downloaded_image = shrink_image(downloaded_image, target_size, target_size);
+        downloaded_image = shrink_outside(downloaded_image, target_size);
         if query.contains_key("static") {
             // Prevent animation by only keep the first frame
             // I actually made it wrong 😅
@@ -196,11 +219,9 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
             target_format = ImageFormat::WebP;
         }
     } else if query.contains_key("static") {
-        downloaded_image = shrink_image(downloaded_image, 498, 422);
-        // from literary meaning, this operation should also convert to static image,
-        // but misskey doesn't do that, so we neither.
+        downloaded_image = shrink_inside(downloaded_image, 498, 422);
     } else if query.contains_key("preview") {
-        downloaded_image = shrink_image(downloaded_image, 200, 200);
+        downloaded_image = shrink_inside(downloaded_image, 200, 200);
     } else if query.contains_key("badge") {
         // Here's the thing: I'm not sure what this function is for,
         // and neither can I implement this easily as many advanced operations
