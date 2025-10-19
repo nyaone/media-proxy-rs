@@ -200,7 +200,11 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     /******************************************/
 
     // Check target format
-    let mut target_format = ImageFormat::from_extension(Path::new(path).extension().and_then(OsStr::to_str).unwrap_or("")).unwrap_or(ImageFormat::WebP);
+    let mut target_format = if path.len() > 1 { // exclude the leading slash
+        ImageFormat::from_extension(Path::new(path).extension().and_then(OsStr::to_str).unwrap_or("")).unwrap_or(ImageFormat::WebP)
+    } else {
+        ImageFormat::WebP // No target format specified, use webp as default
+    };
 
     // Manipulate image (this may change the target format)
     if query.contains_key("emoji") || query.contains_key("avatar") {
@@ -263,11 +267,11 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
 
 pub async fn handle(req: Request<hyper::body::Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     let uri = req.uri();
-    match uri.path() {
-        "/" => Ok(Response::new(full("OK"))), // healthcheck
-        proxy_filename => proxy_image(
-            &proxy_filename[1..], // remove the leading slash
-            form_urlencoded::parse(uri.query().unwrap_or("").as_bytes()).into_owned().collect(),
+    match uri.query() {
+        None => Ok(Response::new(full("OK"))), // healthcheck
+        Some(query) => proxy_image(
+            uri.path(),
+            form_urlencoded::parse(query.as_bytes()).into_owned().collect(),
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())
         ).await,
     }
