@@ -32,7 +32,7 @@ impl Downloader {
         let size_limit = match std::env::var("SIZE_LIMIT") {
             Ok(size_limit_str) => match size_limit_str.parse::<u64>() {
                 Ok(size_limit) => {
-                    info!("Download size limit set to {size_limit}");
+                    info!("Size limit set to {size_limit}");
                     size_limit
                 },
                 Err(err) => {
@@ -41,7 +41,11 @@ impl Downloader {
                 }
             },
             Err(err) => {
-                warn!("Failed to read size limit from env: {err}, fallback to default");
+                if err == std::env::VarError::NotPresent {
+                    info!("Size limit not set, using default");
+                } else {
+                    warn!("Failed to read size limit from env: {err}, fallback to default");
+                }
                 DEFAULT_SIZE_LIMIT
             },
         };
