@@ -3,13 +3,16 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
-use tracing::{info, error};
+use tracing::{error, info};
+
+use crate::downloader::Downloader;
 
 mod handler;
+mod downloader;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub async fn start_server(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn start_server(downloader: Downloader, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("MediaProxyRS@NyaOne #{VERSION} starting...");
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
@@ -23,12 +26,14 @@ pub async fn start_server(addr: SocketAddr) -> Result<(), Box<dyn std::error::Er
         // `hyper::rt` IO traits.
         let io = TokioIo::new(stream);
 
+        let downloader = downloader.clone();
+
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
-                .serve_connection(io, service_fn(handler::handle))
+                .serve_connection(io, service_fn(|req| handler::handle(&downloader, req)))
                 .await
             {
                 error!("Error serving connection: {:?}", err);
@@ -48,6 +53,9 @@ async fn main() {
     // Parse to socket address
     let addr: SocketAddr = env_listen.parse().expect("Invalid listen address");
 
+    // Init file downloader
+    let downloader = Downloader::new();
+
     // Start server
-    start_server(addr).await.expect("Server start failed");
+    start_server(downloader, addr).await.expect("Server start failed");
 }

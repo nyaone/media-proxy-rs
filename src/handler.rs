@@ -1,4 +1,4 @@
-use image::{ImageReader, ImageDecoder, DynamicImage, ImageFormat};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Cursor;
@@ -7,12 +7,11 @@ use http_body_util::{Empty, Full};
 use bytes::Bytes;
 use hyper::{Request, Response};
 use url::form_urlencoded;
-use hyper::{StatusCode};
+use hyper::StatusCode;
 use http_body_util::{combinators::BoxBody, BodyExt};
-use tracing::{warn, error};
+use tracing::{error, warn};
 
-mod download_file;
-use download_file::{download_file, FileDownloadError};
+use crate::downloader::{Downloader, FileDownloadError};
 
 // We create some utility functions to make Empty and Full bodies
 // fit our broadened Response body type.
@@ -66,7 +65,7 @@ fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<DynamicImage, 
     Ok(downloaded_image)
 }
 
-async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
+async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -96,7 +95,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
 
     // Start download
     let url = url.unwrap();
-    let downloaded_file = match download_file(url, host, ua).await {
+    let downloaded_file = match downloader.download_file(url, host, ua).await {
         Ok(b) => b,
         Err(e) => {
             let mut response = Response::new(empty());
@@ -182,7 +181,7 @@ fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
 }
 
 
-async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String, String>, ua: Option<&str>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     // Note: these logics come from
     // https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L293-L479
     // Some of them have been modified to fit our needs.
@@ -190,7 +189,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     /**********************************/
     /* Step 1: Download initial image */
     /**********************************/
-    let mut downloaded_image = match download_image(query.get("url"), query.get("host"), ua).await {
+    let mut downloaded_image = match download_image(downloader, query.get("url"), query.get("host"), ua).await {
         Ok(value) => value,
         Err(value) => return Ok(value),
     };
@@ -265,11 +264,12 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     Ok(response)
 }
 
-pub async fn handle(req: Request<hyper::body::Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+pub async fn handle(downloader: &Downloader, req: Request<hyper::body::Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     let uri = req.uri();
     match uri.query() {
         None => Ok(Response::new(full("OK"))), // healthcheck
         Some(query) => proxy_image(
+            downloader,
             uri.path(),
             form_urlencoded::parse(query.as_bytes()).into_owned().collect(),
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())
