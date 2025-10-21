@@ -172,6 +172,7 @@ fn shrink_outside(image: DynamicImage, size: u32) -> DynamicImage {
     }
 }
 
+#[inline]
 fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
     if image.width() > width || image.height() > height {
         image.thumbnail(width, height)
