@@ -1,4 +1,4 @@
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, ImageBuffer};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Cursor;
@@ -227,16 +227,44 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     } else if query.contains_key("preview") {
         downloaded_image = shrink_inside(downloaded_image, 200, 200);
     } else if query.contains_key("badge") {
-        // Here's the thing: I'm not sure what this function is for,
-        // and neither can I implement this easily as many advanced operations
-        // (resize with position fit, normalize, flatten, b-w color space, entropy calc)
-        // are involved.
-        // This should mean something, but looks not that important for now.
-        // So I'll leave a wrong result here to see if something really breaks.
-        // todo: implement as https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L386-L415
-        let mut response = Response::new(empty());
-        *response.status_mut() = StatusCode::NOT_IMPLEMENTED;
-        return Ok(response);
+        const MASK_SIZE: u32 = 96; // this is a hard-coded value
+
+        // Step 1: resize the image to the target size using `contain` fit mode
+        // the image crate has few fit modes, so we have to implement this manually
+        // Checkout here for more information: https://sharp.pixelplumbing.com/api-resize/
+
+        // prepare target canvas
+        let mut mask = ImageBuffer::new(MASK_SIZE, MASK_SIZE);
+
+        // prepare image with inside mode
+        let image_inside = downloaded_image
+            // resize
+            .thumbnail(MASK_SIZE, MASK_SIZE)
+            // convert to grayscale
+            .grayscale();
+        // normalize
+        imageproc::hog::cell_histograms()
+
+        // linear transition (1.75x contrast)
+
+        // flatten alpha channel
+
+        // to colorspace b-w
+
+        // convert to buffer
+        let buffer_inside = ImageBuffer::from(image_inside.to_luma8());
+
+        // calc offset
+        let offset_x = (MASK_SIZE - buffer_inside.width()) / 2;
+        let offset_y = (MASK_SIZE - buffer_inside.height()) / 2;
+
+        // copy image to canvas
+        for (x, y, pixel) in buffer_inside.enumerate_pixels() {
+            mask.put_pixel(x + offset_x, y + offset_y, *pixel);
+        }
+
+
+
     };
 
     // image crate can't process SVG files here,
