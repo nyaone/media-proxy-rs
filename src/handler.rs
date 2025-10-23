@@ -277,3 +277,41 @@ pub async fn handle(downloader: &Downloader, req: Request<hyper::body::Incoming>
         ).await,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shrink_inside_skip() {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 18));
+        let image = shrink_inside(image, 20, 20);
+        assert_eq!(image.width(), 18);
+        assert_eq!(image.height(), 18);
+    }
+
+    #[test]
+    fn test_shrink_inside_resize() {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 9));
+        let image = shrink_inside(image, 10, 10);
+        assert_eq!(image.width(), 10);
+        assert_eq!(image.height(), 5);
+    }
+
+    #[test]
+    fn test_shrink_outside_skip() {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 9));
+        let image = shrink_outside(image, 10);
+        assert_eq!(image.width(), 18);
+        assert_eq!(image.height(), 9);
+    }
+
+    #[test]
+    fn test_shrink_outside_resize() {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(24, 12));
+        let image = shrink_outside(image, 10);
+        assert_eq!(image.width(), 20);
+        assert_eq!(image.height(), 10);
+    }
+
+}
