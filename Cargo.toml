@@ -12,7 +12,6 @@ hyper-util = { version = "0.1", features = ["full"] }
 
 # image processing
 image = { version = "0.25", features = ["default-formats"]}
-imageproc = "0.25"
 
 # utils
 url = "2"
