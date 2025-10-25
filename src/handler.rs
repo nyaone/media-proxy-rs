@@ -171,6 +171,7 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
         // and neither can I implement this easily as many advanced operations
         // (resize with position fit, normalize, flatten, b-w color space, entropy calc)
         // are involved.
+        // I've tried to let AI to implement, but the result turned out to be not good enough.
         // This should mean something, but looks not that important for now.
         // So I'll leave a wrong result here to see if something really breaks.
         // todo: implement as https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L386-L415
@@ -181,7 +182,7 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
 
     // image crate can't process SVG files here,
     // and it should be returned as-is when decoding fails above.
-    // Rejected type also provided as-is (I guess).
+    // Rejected type also provided unchanged (I guess).
 
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
