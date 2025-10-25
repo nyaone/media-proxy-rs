@@ -1,46 +1,26 @@
+
+mod processors;
+mod utils;
+
 use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Cursor;
 use std::path::Path;
-use http_body_util::{Empty, Full};
+use http_body_util::{Full};
 use bytes::Bytes;
 use hyper::{Request, Response};
 use url::form_urlencoded;
-use hyper::{StatusCode};
+use hyper::StatusCode;
 use http_body_util::{combinators::BoxBody, BodyExt};
 use image::codecs::gif::{GifDecoder, GifEncoder};
 use image::codecs::png::{PngDecoder, PngEncoder};
 use image::codecs::webp::{WebPDecoder, WebPEncoder};
 use tracing::{info, warn, error};
 
-mod download_file;
-use download_file::{download_file, FileDownloadError};
-
-// We create some utility functions to make Empty and Full bodies
-// fit our broadened Response body type.
-fn empty() -> BoxBody<Bytes, hyper::Error> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn response_raw((bytes, ct): (Bytes, Option<String>)) -> Response<BoxBody<Bytes, hyper::Error>> {
-    let mut response = Response::new(
-        Full::new(bytes)
-        .map_err(|never| match never {}).
-        boxed()
-    );
-    if let Some(ct) = ct {
-        response.headers_mut().insert(http::header::CONTENT_TYPE, ct.parse().unwrap());
-    }
-    response
-}
+use crate::downloader::{Downloader, FileDownloadError};
+use processors::{shrink_inside_vec, shrink_outside_vec};
+use utils::{empty, full, response_raw};
 
 enum DecodeImageError {
     Unsupported,
@@ -121,7 +101,7 @@ fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<Vec<DynamicIma
     }
 }
 
-async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<Vec<DynamicImage>, Response<BoxBody<Bytes, hyper::Error>>> {
+async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<Vec<DynamicImage>, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -151,7 +131,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
 
     // Start download
     let url = url.unwrap();
-    let downloaded_file = match download_file(url, host, ua).await {
+    let downloaded_file = match downloader.download_file(url, host, ua).await {
         Ok(b) => b,
         Err(e) => {
             let mut response = Response::new(empty());
@@ -199,55 +179,7 @@ async fn download_image(url: Option<&String>, host: Option<&String>, ua: Option<
     }
 }
 
-#[inline]
-fn shrink_outside_vec(images: Vec<DynamicImage>, size: u32) -> Vec<DynamicImage> {
-    images.into_iter().map(|img| shrink_outside(img, size)).collect()
-}
-
-#[inline]
-fn shrink_inside_vec(images: Vec<DynamicImage>, width: u32, height: u32) -> Vec<DynamicImage> {
-    images.into_iter().map(|img| shrink_inside(img, width, height)).collect()
-}
-
-fn shrink_outside(image: DynamicImage, size: u32) -> DynamicImage {
-    // image::math::resize_dimensions is not a public function,
-    // and we can't call image.thumbnail with fill parameter `true`,
-    // so we have to write the entire compare logic here.
-    // Luckily, misskey only performs this action with height and width the same.
-    let w = image.width();
-    let h = image.height();
-    if w > size && h > size {
-        // need to shrink
-
-        // init target sizes with input as default
-        let mut w2 = size;
-        let mut h2 = size;
-
-        // check which side needs expansion
-        if w > h {
-            w2 = (f64::from(size) * f64::from(w) / f64::from(h)).round() as u32;
-        } else {
-            h2 = (f64::from(size) * f64::from(h) / f64::from(w)).round() as u32;
-        }
-
-        // Do the shrinking
-        image.thumbnail_exact(w2, h2)
-    } else {
-        // keep as-is
-        image
-    }
-}
-
-fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
-    if image.width() > width || image.height() > height {
-        image.thumbnail(width, height)
-    } else {
-        image // keep as-is
-    }
-}
-
-
-async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String, String>, ua: Option<&str>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     // Note: these logics come from
     // https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L293-L479
     // Some of them have been modified to fit our needs.
@@ -255,7 +187,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     /**********************************/
     /* Step 1: Download initial image */
     /**********************************/
-    let mut downloaded_image = match download_image(query.get("url"), query.get("host"), ua).await {
+    let mut downloaded_image = match download_image(downloader, query.get("url"), query.get("host"), ua).await {
         Ok(value) => value,
         Err(value) => return Ok(value),
     };
@@ -283,7 +215,6 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
         if query.contains_key("static") {
             // Prevent animation by only keep the first frame
             downloaded_image.truncate(1);
-            target_format = ImageFormat::WebP;
         }
     } else if query.contains_key("static") {
         downloaded_image = shrink_inside_vec(downloaded_image, 498, 422);
@@ -294,6 +225,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
         // and neither can I implement this easily as many advanced operations
         // (resize with position fit, normalize, flatten, b-w color space, entropy calc)
         // are involved.
+        // I've tried to let AI to implement, but the result turned out to be not good enough.
         // This should mean something, but looks not that important for now.
         // So I'll leave a wrong result here to see if something really breaks.
         // todo: implement as https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L386-L415
@@ -304,7 +236,7 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
 
     // image crate can't process SVG files here,
     // and it should be returned as-is when decoding fails above.
-    // Rejected type also provided as-is (I guess).
+    // Rejected type also provided unchanged (I guess).
 
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
@@ -336,11 +268,12 @@ async fn proxy_image(path: &str, query: HashMap<String, String>, ua: Option<&str
     Ok(response)
 }
 
-pub async fn handle(req: Request<hyper::body::Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+pub async fn handle(downloader: &Downloader, req: Request<hyper::body::Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     let uri = req.uri();
     match uri.query() {
         None => Ok(Response::new(full("OK"))), // healthcheck
         Some(query) => proxy_image(
+            downloader,
             uri.path(),
             form_urlencoded::parse(query.as_bytes()).into_owned().collect(),
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())

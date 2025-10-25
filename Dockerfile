@@ -37,6 +37,7 @@ COPY --from=build /bin/server /bin/
 
 ENV RUST_LOG="error"
 ENV LISTEN="0.0.0.0:3000"
+ENV SIZE_LIMIT="100000000"
 
 EXPOSE 3000
 
