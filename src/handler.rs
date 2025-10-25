@@ -156,12 +156,12 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
         };
         // Only shrink, not enlarge
         downloaded_image = shrink_outside(downloaded_image, target_size);
-        if query.contains_key("static") {
-            // Prevent animation by only keep the first frame
-            // I actually made it wrong 😅
-            // The library will by default keep only static image,
-            // I'll need to find out how to server dynamic images.
-        }
+        // if query.contains_key("static") {
+        //     // Prevent animation by only keep the first frame
+        //     // I actually made it wrong 😅
+        //     // The library will by default keep only static image,
+        //     // I'll need to find out how to server dynamic images.
+        // }
     } else if query.contains_key("static") {
         downloaded_image = shrink_inside(downloaded_image, 498, 422);
     } else if query.contains_key("preview") {
