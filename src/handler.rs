@@ -2,6 +2,7 @@
 mod processors;
 mod utils;
 
+use std::default::Default;
 use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -14,10 +15,9 @@ use url::form_urlencoded;
 use hyper::StatusCode;
 use http_body_util::{combinators::BoxBody, BodyExt};
 use image::codecs::gif::{GifDecoder, GifEncoder};
-use image::codecs::png::{PngDecoder, PngEncoder};
-use image::codecs::webp::{WebPDecoder, WebPEncoder};
+use image::codecs::png::{PngDecoder};
+use image::codecs::webp::{WebPDecoder};
 use tracing::{info, warn, error};
-
 use crate::downloader::{Downloader, FileDownloadError};
 use processors::{shrink_inside_vec, shrink_outside_vec};
 use utils::{empty, full, response_raw};
@@ -61,7 +61,8 @@ fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFor
             let mut decoder = PngDecoder::new(img_reader.into_inner())?;
             let ori = decoder.orientation();
             if decoder.is_apng()? {
-                decoder.apng()?
+                decoder
+                    .apng()?
                     .into_frames()
                     .collect_frames()
                     .map(|f| frames_to_images(ori, f))
@@ -73,7 +74,8 @@ fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFor
             let mut decoder = WebPDecoder::new(img_reader.into_inner())?;
             let ori = decoder.orientation();
             if decoder.has_animation() {
-                decoder.into_frames()
+                decoder
+                    .into_frames()
                     .collect_frames()
                     .map(|f| frames_to_images(ori, f))
             } else {
@@ -244,9 +246,31 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::new(img.to_rgba8())).collect();
 
     if let Err(err) = match target_format {
-        ImageFormat::WebP => WebPEncoder::new_lossless(buffer).encode_frames(frames), // not supported
+        ImageFormat::WebP => {
+            let encoder = webp_animation::Encoder::new_with_options(
+                (downloaded_image[0].width(), downloaded_image[0].height()),
+                webp_animation::EncoderOptions{
+                    anim_params: webp_animation::AnimParams {
+                        loop_count: 0,
+                    },
+                    allow_mixed: true,
+                    encoding_config: Some(webp_animation::EncodingConfig{
+                        encoding_type: webp_animation::EncodingType::Lossy(
+                            webp_animation::LossyEncodingConfig {
+                                alpha_quality: 95,
+                                ..Default::default()
+                            }
+                        ),
+                        quality: 77f32,
+                        method: 2,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ).map_err(|e| never)?;
+            
+        },
         ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
-        ImageFormat::Png => PngEncoder::new(buffer).encode_frames(frames), // not supported
         _ => downloaded_image[0].write_to(buffer, target_format),
     } {
         // Image encoder failed
