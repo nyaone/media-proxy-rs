@@ -1,3 +1,6 @@
+mod handler;
+mod downloader;
+
 use std::net::SocketAddr;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -6,9 +9,6 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::downloader::Downloader;
-
-mod handler;
-mod downloader;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

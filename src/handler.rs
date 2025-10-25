@@ -1,9 +1,12 @@
+mod processors;
+mod utils;
+
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Cursor;
 use std::path::Path;
-use http_body_util::{Empty, Full};
+use http_body_util::{Full};
 use bytes::Bytes;
 use hyper::{Request, Response};
 use url::form_urlencoded;
@@ -12,31 +15,8 @@ use http_body_util::{combinators::BoxBody, BodyExt};
 use tracing::{error, warn};
 
 use crate::downloader::{Downloader, FileDownloadError};
-
-// We create some utility functions to make Empty and Full bodies
-// fit our broadened Response body type.
-fn empty() -> BoxBody<Bytes, hyper::Error> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn response_raw((bytes, ct): (Bytes, Option<String>)) -> Response<BoxBody<Bytes, hyper::Error>> {
-    let mut response = Response::new(
-        Full::new(bytes)
-        .map_err(|never| match never {}).
-        boxed()
-    );
-    if let Some(ct) = ct {
-        response.headers_mut().insert(http::header::CONTENT_TYPE, ct.parse().unwrap());
-    }
-    response
-}
+use processors::{shrink_inside, shrink_outside};
+use utils::{empty, full, response_raw};
 
 enum DecodeImageError {
     Unsupported,
@@ -143,45 +123,6 @@ async fn download_image(downloader: &Downloader, url: Option<&String>, host: Opt
     }
 }
 
-fn shrink_outside(image: DynamicImage, size: u32) -> DynamicImage {
-    // image::math::resize_dimensions is not a public function,
-    // and we can't call image.thumbnail with fill parameter `true`,
-    // so we have to write the entire compare logic here.
-    // Luckily, misskey only performs this action with height and width the same.
-    let w = image.width();
-    let h = image.height();
-    if w > size && h > size {
-        // need to shrink
-
-        // init target sizes with input as default
-        let mut w2 = size;
-        let mut h2 = size;
-
-        // check which side needs expansion
-        if w > h {
-            w2 = (f64::from(size) * f64::from(w) / f64::from(h)).round() as u32;
-        } else {
-            h2 = (f64::from(size) * f64::from(h) / f64::from(w)).round() as u32;
-        }
-
-        // Do the shrinking
-        image.thumbnail_exact(w2, h2)
-    } else {
-        // keep as-is
-        image
-    }
-}
-
-#[inline]
-fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
-    if image.width() > width || image.height() > height {
-        image.thumbnail(width, height)
-    } else {
-        image // keep as-is
-    }
-}
-
-
 async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String, String>, ua: Option<&str>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     // Note: these logics come from
     // https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L293-L479
@@ -276,42 +217,4 @@ pub async fn handle(downloader: &Downloader, req: Request<hyper::body::Incoming>
             req.headers().get(http::header::USER_AGENT).map(|ua| ua.to_str().unwrap())
         ).await,
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_shrink_inside_skip() {
-        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 18));
-        let image = shrink_inside(image, 20, 20);
-        assert_eq!(image.width(), 18);
-        assert_eq!(image.height(), 18);
-    }
-
-    #[test]
-    fn test_shrink_inside_resize() {
-        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 9));
-        let image = shrink_inside(image, 10, 10);
-        assert_eq!(image.width(), 10);
-        assert_eq!(image.height(), 5);
-    }
-
-    #[test]
-    fn test_shrink_outside_skip() {
-        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(18, 9));
-        let image = shrink_outside(image, 10);
-        assert_eq!(image.width(), 18);
-        assert_eq!(image.height(), 9);
-    }
-
-    #[test]
-    fn test_shrink_outside_resize() {
-        let image = DynamicImage::ImageRgba8(image::RgbaImage::new(24, 12));
-        let image = shrink_outside(image, 10);
-        assert_eq!(image.width(), 20);
-        assert_eq!(image.height(), 10);
-    }
-
 }
