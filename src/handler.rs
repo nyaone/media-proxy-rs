@@ -141,7 +141,7 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     /******************************************/
 
     // Check target format
-    let mut target_format = if path.len() > 1 { // exclude the leading slash
+    let target_format = if path.len() > 1 { // exclude the leading slash
         ImageFormat::from_extension(Path::new(path).extension().and_then(OsStr::to_str).unwrap_or("")).unwrap_or(ImageFormat::WebP)
     } else {
         ImageFormat::WebP // No target format specified, use webp as default
