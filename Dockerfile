@@ -19,6 +19,10 @@ cp ./target/release/$APP_NAME /bin/server
 
 FROM alpine AS final
 
+# Add missing ca-certificates
+RUN apk update && \
+    apk add ca-certificates
+
 # Create a non-privileged user that the app will run under.
 # See https://docs.docker.com/go/dockerfile-user-best-practices/
 ARG UID=10001
