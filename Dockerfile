@@ -17,16 +17,15 @@ cargo build --locked --release && \
 cp ./target/release/$APP_NAME /bin/server
 
 
-# Alpine can't handle DNS query for punycode domains correctly,
-# so using debian slim here.
-FROM debian:trixie-slim AS final
+FROM alpine AS final
 
 # Create a non-privileged user that the app will run under.
 # See https://docs.docker.com/go/dockerfile-user-best-practices/
 ARG UID=10001
-
-RUN useradd \
-    --home-dir "/nonexistent" \
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
     --shell "/sbin/nologin" \
     --no-create-home \
     --uid "${UID}" \
