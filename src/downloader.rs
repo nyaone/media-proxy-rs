@@ -57,7 +57,7 @@ impl Downloader {
     }
 
     pub async fn download_file(&self, url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
-        debug!("Downloading file: {url} with UserAgent: {ua}");
+        debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
 
         let mut default_headers = HeaderMap::new();
         default_headers.insert(USER_AGENT, ua.parse().unwrap());
