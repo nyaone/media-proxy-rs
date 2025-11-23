@@ -14,7 +14,11 @@
 docker pull ghcr.io/nyaone/media-proxy-rs:master
 ```
 
-暂时没有稳定发布版本
+稳定版本（但因为目前还在开发初期，不能保证稳定）：
+
+```shell
+docker pull ghcr.io/nyaone/media-proxy-rs:latest
+```
 
 ### 环境变量
 
