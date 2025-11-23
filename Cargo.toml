@@ -12,6 +12,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 
 # image processing
 image = { version = "0.25", features = ["default-formats"]}
+webp-animation = "0.9"
 
 # utils
 url = "2"

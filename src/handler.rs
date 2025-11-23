@@ -1,10 +1,12 @@
+
 mod processors;
 mod utils;
 
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
+use std::default::Default;
+use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder, Delay};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::Path;
 use http_body_util::{Full};
 use bytes::Bytes;
@@ -12,40 +14,97 @@ use hyper::{Request, Response};
 use url::form_urlencoded;
 use hyper::StatusCode;
 use http_body_util::{combinators::BoxBody, BodyExt};
-use tracing::{error, warn};
-
+use image::codecs::gif::{GifDecoder, GifEncoder};
+use image::codecs::png::{PngDecoder};
+use image::codecs::webp::{WebPDecoder};
+use tracing::{info, warn, error};
 use crate::downloader::{Downloader, FileDownloadError};
-use processors::{shrink_inside, shrink_outside};
+use processors::{shrink_inside_vec, shrink_outside_vec};
 use utils::{empty, full, response_raw};
 
 enum DecodeImageError {
     Unsupported,
     ImageError(image::ImageError),
 }
-fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<DynamicImage, DecodeImageError> {
+
+fn static_image(ori: Result<image::metadata::Orientation, image::ImageError>, mut img: DynamicImage) -> Result<Vec<(DynamicImage, Delay)>, image::ImageError> {
+    if let Ok(ori) = ori {
+        img.apply_orientation(ori);
+    }
+    Ok(vec![(img, Delay::from_numer_denom_ms(0, 1))])
+}
+
+fn frames_to_images(ori: Result<image::metadata::Orientation, image::ImageError>, frames: Vec<Frame>) -> Vec<(DynamicImage, Delay)> {
+    let mut images: Vec<(DynamicImage, Delay)> = Vec::new();
+    for frame in frames {
+        let delay = frame.delay();
+        let mut img = DynamicImage::from(frame.into_buffer());
+        if let Ok(ori) = ori {
+            img.apply_orientation(ori);
+        }
+        images.push((img, delay));
+    }
+    images
+}
+
+// Inspired by https://github.com/image-rs/image/issues/2360#issuecomment-3092626301
+fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFormat) -> Result<Vec<(DynamicImage, Delay)>, image::ImageError> {
+    match format {
+        ImageFormat::Gif => {
+            let mut decoder = GifDecoder::new(img_reader.into_inner())?;
+            let ori = decoder.orientation();
+            decoder
+                .into_frames()
+                .collect_frames()
+                .map(|f| frames_to_images(ori, f))
+        }
+        ImageFormat::Png => {
+            let mut decoder = PngDecoder::new(img_reader.into_inner())?;
+            let ori = decoder.orientation();
+            if decoder.is_apng()? {
+                decoder
+                    .apng()?
+                    .into_frames()
+                    .collect_frames()
+                    .map(|f| frames_to_images(ori, f))
+            } else {
+                static_image(ori, DynamicImage::from_decoder(decoder)?)
+            }
+        }
+        ImageFormat::WebP => {
+            let mut decoder = WebPDecoder::new(img_reader.into_inner())?;
+            let ori = decoder.orientation();
+            if decoder.has_animation() {
+                decoder
+                    .into_frames()
+                    .collect_frames()
+                    .map(|f| frames_to_images(ori, f))
+            } else {
+                static_image(ori, DynamicImage::from_decoder(decoder)?)
+            }
+        }
+        _ => {
+            let mut decoder = img_reader.into_decoder()?;
+            static_image(decoder.orientation(), DynamicImage::from_decoder(decoder)?)
+        }
+    }
+}
+fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<Vec<(DynamicImage, Delay)>, DecodeImageError> {
     // Check whether the file is an image (don't trust the content-type header or filename)
     // hint: misskey need to detect whether the file is manipulatable manually,
     // but here we are using image crate's format guessing feature
     let img_reader = ImageReader::new(Cursor::new(downloaded_bytes)).with_guessed_format().unwrap();
 
-    // Check if is an unsupported format (like animated ones, usually gif)
-    if let Some(format) = img_reader.format() {
-        if format == ImageFormat::Gif {
-            // Unable to process for now // todo: find a way to handle this properly
-            warn!("Unable to process gif for now, provide as-is: {url}");
-            return Err(DecodeImageError::Unsupported);
+    match img_reader.format() {
+        Some(format) => decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError),
+        None => {
+            info!("Unable to detect format of {url}");
+            Err(DecodeImageError::Unsupported)
         }
     }
-
-    let mut img_decoder = img_reader.into_decoder().map_err(DecodeImageError::ImageError)?;
-
-    let ori = img_decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut downloaded_image = DynamicImage::from_decoder(img_decoder).map_err(DecodeImageError::ImageError)?;
-    downloaded_image.apply_orientation(ori);
-    Ok(downloaded_image)
 }
 
-async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<DynamicImage, Response<BoxBody<Bytes, hyper::Error>>> {
+async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<Vec<(DynamicImage, Delay)>, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -155,17 +214,15 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
             320
         };
         // Only shrink, not enlarge
-        downloaded_image = shrink_outside(downloaded_image, target_size);
-        // if query.contains_key("static") {
-        //     // Prevent animation by only keep the first frame
-        //     // I actually made it wrong 😅
-        //     // The library will by default keep only static image,
-        //     // I'll need to find out how to server dynamic images.
-        // }
+        downloaded_image = shrink_outside_vec(downloaded_image, target_size);
+        if query.contains_key("static") {
+            // Prevent animation by only keep the first frame
+            downloaded_image.truncate(1);
+        }
     } else if query.contains_key("static") {
-        downloaded_image = shrink_inside(downloaded_image, 498, 422);
+        downloaded_image = shrink_inside_vec(downloaded_image, 498, 422);
     } else if query.contains_key("preview") {
-        downloaded_image = shrink_inside(downloaded_image, 200, 200);
+        downloaded_image = shrink_inside_vec(downloaded_image, 200, 200);
     } else if query.contains_key("badge") {
         // Here's the thing: I'm not sure what this function is for,
         // and neither can I implement this easily as many advanced operations
@@ -186,7 +243,54 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
 
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
-    if let Err(err) = downloaded_image.write_to(&mut Cursor::new(&mut bytes), target_format) {
+    let mut buffer = Cursor::new(&mut bytes);
+    let first_frame = downloaded_image[0].0.clone();
+    let width = first_frame.width();
+    let height = first_frame.height();
+    let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1)).collect();
+
+    if let Err(err) = match target_format {
+        ImageFormat::WebP => {
+            let mut encoder = webp_animation::Encoder::new_with_options(
+                (width, height),
+                webp_animation::EncoderOptions{
+                    anim_params: webp_animation::AnimParams {
+                        loop_count: 0,
+                    },
+                    allow_mixed: true,
+                    encoding_config: Some(webp_animation::EncodingConfig{
+                        encoding_type: webp_animation::EncodingType::Lossy(
+                            webp_animation::LossyEncodingConfig {
+                                alpha_quality: 95,
+                                ..Default::default()
+                            }
+                        ),
+                        quality: 77f32,
+                        method: 2,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ).unwrap();
+
+            let mut current_ts = 0;
+            for frame in frames {
+                // Encode one frame
+                encoder.add_frame(&frame.buffer(), current_ts).unwrap();
+
+                // Calc the duration (delay)
+                let frame_delay_tuple = frame.delay().numer_denom_ms();
+                let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
+                current_ts += frame_delay;
+            }
+
+            let webp_data = encoder.finalize(current_ts).unwrap();
+            buffer.write_all(&webp_data).unwrap();
+            Ok(())
+        },
+        ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
+        _ => first_frame.write_to(buffer, target_format),
+    } {
         // Image encoder failed
         error!("Failed to encode image: {err}");
         let mut response = Response::new(empty());
