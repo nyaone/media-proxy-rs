@@ -3,7 +3,7 @@ mod processors;
 mod utils;
 
 use std::default::Default;
-use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder, Delay};
+use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder, Delay, GenericImageView};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::{Cursor, Write};
@@ -244,15 +244,13 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
     let mut buffer = Cursor::new(&mut bytes);
-    let first_frame = downloaded_image[0].0.clone();
-    let width = first_frame.width();
-    let height = first_frame.height();
+    let first_frame = downloaded_image[0].0.clone(); // todo: find a better way
     let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1)).collect();
 
     if let Err(err) = match target_format {
         ImageFormat::WebP => {
             let mut encoder = webp_animation::Encoder::new_with_options(
-                (width, height),
+                first_frame.dimensions(),
                 webp_animation::EncoderOptions{
                     anim_params: webp_animation::AnimParams {
                         loop_count: 0,
