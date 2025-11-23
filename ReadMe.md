@@ -26,5 +26,4 @@ docker pull ghcr.io/nyaone/media-proxy-rs:master
 
 ## 待办事项
 
-- [ ] 添加动图处理支持（等上游库支持）
-- [ ] 完成 badge 模式下的图片处理
+- 完成 badge 模式下的图片处理
