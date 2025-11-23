@@ -244,52 +244,56 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
     let mut buffer = Cursor::new(&mut bytes);
-    let first_frame = downloaded_image[0].0.clone();
-    let width = first_frame.width();
-    let height = first_frame.height();
-    let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1)).collect();
+    let first_frame = downloaded_image[0].0.clone(); // todo: find a better way
 
-    if let Err(err) = match target_format {
-        ImageFormat::WebP => {
-            let mut encoder = webp_animation::Encoder::new_with_options(
-                (width, height),
-                webp_animation::EncoderOptions{
-                    anim_params: webp_animation::AnimParams {
-                        loop_count: 0,
-                    },
-                    allow_mixed: true,
-                    encoding_config: Some(webp_animation::EncodingConfig{
-                        encoding_type: webp_animation::EncodingType::Lossy(
-                            webp_animation::LossyEncodingConfig {
-                                alpha_quality: 95,
-                                ..Default::default()
-                            }
-                        ),
-                        quality: 77f32,
-                        method: 2,
+    if let Err(err) = if downloaded_image.len() == 1 {
+        // Just one single frame, use webp encoder from image-rs because it has better performance
+        first_frame.write_to(buffer, target_format)
+    } else {
+        // Animation, use webp-animation crate
+        let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1)).collect();
+        match target_format {
+            ImageFormat::WebP => {
+                let mut encoder = webp_animation::Encoder::new_with_options(
+                    (first_frame.width(), first_frame.height()),
+                    webp_animation::EncoderOptions{
+                        anim_params: webp_animation::AnimParams {
+                            loop_count: 0,
+                        },
+                        allow_mixed: true,
+                        encoding_config: Some(webp_animation::EncodingConfig{
+                            encoding_type: webp_animation::EncodingType::Lossy(
+                                webp_animation::LossyEncodingConfig {
+                                    alpha_quality: 95,
+                                    ..Default::default()
+                                }
+                            ),
+                            quality: 77f32,
+                            method: 2,
+                            ..Default::default()
+                        }),
                         ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            ).unwrap();
+                    },
+                ).unwrap();
 
-            let mut current_ts = 0;
-            for frame in frames {
-                // Encode one frame
-                encoder.add_frame(&frame.buffer(), current_ts).unwrap();
+                let mut current_ts = 0;
+                for frame in frames {
+                    // Encode one frame
+                    encoder.add_frame(&frame.buffer(), current_ts).unwrap();
 
-                // Calc the duration (delay)
-                let frame_delay_tuple = frame.delay().numer_denom_ms();
-                let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
-                current_ts += frame_delay;
-            }
+                    // Calc the duration (delay)
+                    let frame_delay_tuple = frame.delay().numer_denom_ms();
+                    let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
+                    current_ts += frame_delay;
+                }
 
-            let webp_data = encoder.finalize(current_ts).unwrap();
-            buffer.write_all(&webp_data).unwrap();
-            Ok(())
-        },
-        ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
-        _ => first_frame.write_to(buffer, target_format),
+                let webp_data = encoder.finalize(current_ts).unwrap();
+                buffer.write_all(&webp_data).unwrap();
+                Ok(())
+            },
+            ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
+            _ => first_frame.write_to(buffer, target_format),
+        }
     } {
         // Image encoder failed
         error!("Failed to encode image: {err}");
