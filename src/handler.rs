@@ -3,7 +3,7 @@ mod processors;
 mod utils;
 
 use std::default::Default;
-use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder};
+use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder, Delay};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::{Cursor, Write};
@@ -27,27 +27,28 @@ enum DecodeImageError {
     ImageError(image::ImageError),
 }
 
-fn static_image(ori: Result<image::metadata::Orientation, image::ImageError>, mut img: DynamicImage) -> Result<Vec<DynamicImage>, image::ImageError> {
+fn static_image(ori: Result<image::metadata::Orientation, image::ImageError>, mut img: DynamicImage) -> Result<Vec<(DynamicImage, Delay)>, image::ImageError> {
     if let Ok(ori) = ori {
         img.apply_orientation(ori);
     }
-    Ok(vec![img])
+    Ok(vec![(img, Delay::from_numer_denom_ms(0, 1))])
 }
 
-fn frames_to_images(ori: Result<image::metadata::Orientation, image::ImageError>, frames: Vec<Frame>) -> Vec<DynamicImage> {
-    let mut images: Vec<DynamicImage> = Vec::new();
+fn frames_to_images(ori: Result<image::metadata::Orientation, image::ImageError>, frames: Vec<Frame>) -> Vec<(DynamicImage, Delay)> {
+    let mut images: Vec<(DynamicImage, Delay)> = Vec::new();
     for frame in frames {
+        let delay = frame.delay();
         let mut img = DynamicImage::from(frame.into_buffer());
         if let Ok(ori) = ori {
             img.apply_orientation(ori);
         }
-        images.push(img);
+        images.push((img, delay));
     }
     images
 }
 
 // Inspired by https://github.com/image-rs/image/issues/2360#issuecomment-3092626301
-fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFormat) -> Result<Vec<DynamicImage>, image::ImageError> {
+fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFormat) -> Result<Vec<(DynamicImage, Delay)>, image::ImageError> {
     match format {
         ImageFormat::Gif => {
             let mut decoder = GifDecoder::new(img_reader.into_inner())?;
@@ -88,7 +89,7 @@ fn decode_image_format(img_reader: ImageReader<Cursor<&Bytes>>, format: ImageFor
         }
     }
 }
-fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<Vec<DynamicImage>, DecodeImageError> {
+fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<Vec<(DynamicImage, Delay)>, DecodeImageError> {
     // Check whether the file is an image (don't trust the content-type header or filename)
     // hint: misskey need to detect whether the file is manipulatable manually,
     // but here we are using image crate's format guessing feature
@@ -103,7 +104,7 @@ fn decode_image(url: &String, downloaded_bytes: &Bytes) -> Result<Vec<DynamicIma
     }
 }
 
-async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<Vec<DynamicImage>, Response<BoxBody<Bytes, hyper::Error>>> {
+async fn download_image(downloader: &Downloader, url: Option<&String>, host: Option<&String>, ua: Option<&str>) -> Result<Vec<(DynamicImage, Delay)>, Response<BoxBody<Bytes, hyper::Error>>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -243,10 +244,10 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
     let mut buffer = Cursor::new(&mut bytes);
-    let first_frame = downloaded_image[0].clone();
+    let first_frame = downloaded_image[0].0.clone();
     let width = first_frame.width();
     let height = first_frame.height();
-    let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::new(img.to_rgba8())).collect();
+    let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1)).collect();
 
     if let Err(err) = match target_format {
         ImageFormat::WebP => {
@@ -275,8 +276,7 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
             let mut final_timestamp = 0;
             for frame in frames {
                 let frame_delay_tuple = frame.delay().numer_denom_ms();
-                // let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
-                let frame_delay = 100;
+                let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
                 final_timestamp += frame_delay;
                 encoder.add_frame(&frame.buffer(), final_timestamp).unwrap();
             }
