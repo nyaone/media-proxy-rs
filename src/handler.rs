@@ -161,7 +161,7 @@ async fn download_image(downloader: &Downloader, url: Option<&String>, host: Opt
         }
     };
 
-    // Check possible mimetype of downloaded file
+    // Check possible mimetype of the downloaded file
     if let Some(ct) = downloaded_file.1.as_ref() {
         if !ct.starts_with("image/") {
             // Not image, return raw bytes
