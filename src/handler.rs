@@ -6,7 +6,7 @@ use std::default::Default;
 use image::{ImageReader, ImageDecoder, Frame, DynamicImage, ImageFormat, AnimationDecoder};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::Path;
 use http_body_util::{Full};
 use bytes::Bytes;
@@ -242,13 +242,16 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
 
     // Encode image using target format
     let mut bytes: Vec<u8> = Vec::new();
-    let buffer = Cursor::new(&mut bytes);
+    let mut buffer = Cursor::new(&mut bytes);
+    let first_frame = downloaded_image[0].clone();
+    let width = first_frame.width();
+    let height = first_frame.height();
     let frames: Vec<Frame> = downloaded_image.into_iter().map(|img| Frame::new(img.to_rgba8())).collect();
 
     if let Err(err) = match target_format {
         ImageFormat::WebP => {
-            let encoder = webp_animation::Encoder::new_with_options(
-                (downloaded_image[0].width(), downloaded_image[0].height()),
+            let mut encoder = webp_animation::Encoder::new_with_options(
+                (width, height),
                 webp_animation::EncoderOptions{
                     anim_params: webp_animation::AnimParams {
                         loop_count: 0,
@@ -267,11 +270,23 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
                     }),
                     ..Default::default()
                 },
-            ).map_err(|e| never)?;
-            
+            ).unwrap();
+
+            let mut final_timestamp = 0;
+            for frame in frames {
+                let frame_delay_tuple = frame.delay().numer_denom_ms();
+                // let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
+                let frame_delay = 100;
+                final_timestamp += frame_delay;
+                encoder.add_frame(&frame.buffer(), final_timestamp).unwrap();
+            }
+
+            let webp_data = encoder.finalize(final_timestamp).unwrap();
+            buffer.write_all(&webp_data).unwrap();
+            Ok(())
         },
         ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
-        _ => downloaded_image[0].write_to(buffer, target_format),
+        _ => first_frame.write_to(buffer, target_format),
     } {
         // Image encoder failed
         error!("Failed to encode image: {err}");
