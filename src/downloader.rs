@@ -57,17 +57,18 @@ impl Downloader {
     }
 
     pub async fn download_file(&self, url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
-        debug!("Downloading file: {url} with UserAgent: {ua}");
+        debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
 
         let mut default_headers = HeaderMap::new();
         default_headers.insert(USER_AGENT, ua.parse().unwrap());
 
         // First try: direct download
+        debug!("Trying direct download...");
         let mut resp = self.client.get(url).headers(default_headers).send().await.map_err(FileDownloadError::RequestError)?;
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
         if resp.status().is_client_error() {
-            warn!("Direct download failed {} {}, retrying with host specified", resp.status(), url);
+            debug!("Direct download failed {} {}, retrying with host specified", resp.status(), url);
             if let Some(host) = host {
                 let mut additional_headers = HeaderMap::new();
                 additional_headers.insert(USER_AGENT, ua.parse().unwrap());
@@ -78,11 +79,14 @@ impl Downloader {
         }
 
         // Check status code
-        if !resp.status().is_success() || resp.status() == StatusCode::NO_CONTENT {
-            return Err(FileDownloadError::InvalidStatusCode(resp.status()));
+        debug!("Download finish, checking status code...");
+        let resp_status = resp.status();
+        if !resp_status.is_success() || resp_status == StatusCode::NO_CONTENT {
+            return Err(FileDownloadError::InvalidStatusCode(resp_status));
         }
 
         // Check response size (content length)
+        debug!("Status OK, checking content length (if any)...");
         if let Some(size) = resp.content_length() {
             if size > self.size_limit {
                 return Err(FileDownloadError::Oversize);
@@ -96,6 +100,7 @@ impl Downloader {
         }
 
         // Nothing wrong, let's download the entire response body and return
+        debug!("Length pre-check OK, downloading entire body...");
         let ct = resp.headers().get(CONTENT_TYPE).map(|ct| ct.to_str().unwrap().to_string());
         let mut limited_buf = Vec::new();
         let mut stream = resp.bytes_stream();
@@ -105,6 +110,8 @@ impl Downloader {
                 return Err(FileDownloadError::Oversize);
             }
         }
+
+        debug!("Response body downloaded, return. ContentType: {ct:?}");
         Ok((Bytes::from(limited_buf), ct))
     }
 }
