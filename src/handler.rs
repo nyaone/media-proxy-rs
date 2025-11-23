@@ -273,15 +273,18 @@ async fn proxy_image(downloader: &Downloader, path: &str, query: HashMap<String,
                 },
             ).unwrap();
 
-            let mut final_timestamp = 0;
+            let mut current_ts = 0;
             for frame in frames {
+                // Encode one frame
+                encoder.add_frame(&frame.buffer(), current_ts).unwrap();
+
+                // Calc the duration (delay)
                 let frame_delay_tuple = frame.delay().numer_denom_ms();
                 let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
-                final_timestamp += frame_delay;
-                encoder.add_frame(&frame.buffer(), final_timestamp).unwrap();
+                current_ts += frame_delay;
             }
 
-            let webp_data = encoder.finalize(final_timestamp).unwrap();
+            let webp_data = encoder.finalize(current_ts).unwrap();
             buffer.write_all(&webp_data).unwrap();
             Ok(())
         },
