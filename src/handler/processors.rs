@@ -39,13 +39,26 @@ pub fn shrink_inside(image: DynamicImage, width: u32, height: u32) -> DynamicIma
 }
 
 #[inline]
-pub fn shrink_outside_vec(images: Vec<(DynamicImage, Delay)>, size: u32) -> Vec<(DynamicImage, Delay)> {
-    images.into_iter().map(|img| (shrink_outside(img.0, size), img.1)).collect()
+pub fn shrink_outside_vec(
+    images: Vec<(DynamicImage, Delay)>,
+    size: u32,
+) -> Vec<(DynamicImage, Delay)> {
+    images
+        .into_iter()
+        .map(|img| (shrink_outside(img.0, size), img.1))
+        .collect()
 }
 
 #[inline]
-pub fn shrink_inside_vec(images: Vec<(DynamicImage, Delay)>, width: u32, height: u32) -> Vec<(DynamicImage, Delay)> {
-    images.into_iter().map(|img| (shrink_inside(img.0, width, height), img.1)).collect()
+pub fn shrink_inside_vec(
+    images: Vec<(DynamicImage, Delay)>,
+    width: u32,
+    height: u32,
+) -> Vec<(DynamicImage, Delay)> {
+    images
+        .into_iter()
+        .map(|img| (shrink_inside(img.0, width, height), img.1))
+        .collect()
 }
 
 #[cfg(test)]
@@ -83,5 +96,4 @@ mod tests {
         assert_eq!(image.width(), 20);
         assert_eq!(image.height(), 10);
     }
-
 }

@@ -1,8 +1,8 @@
-use futures_util::stream::StreamExt;
 use bytes::Bytes;
-use reqwest::header::{HeaderMap, USER_AGENT, REFERER, CONTENT_TYPE, CONTENT_LENGTH};
+use futures_util::stream::StreamExt;
+use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, REFERER, USER_AGENT};
 use reqwest::{Client, StatusCode};
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 pub enum FileDownloadError {
     Oversize,
@@ -26,37 +26,22 @@ impl Clone for Downloader {
     }
 }
 
-impl Downloader {
-    pub fn new() -> Self {
-        // Read size limit from env
-        let size_limit = match std::env::var("SIZE_LIMIT") {
-            Ok(size_limit_str) => match size_limit_str.parse::<u64>() {
-                Ok(size_limit) => {
-                    info!("Size limit set to {size_limit}");
-                    size_limit
-                },
-                Err(err) => {
-                    warn!("Failed to parse size limit {size_limit_str}: {err}, fallback to default");
-                    DEFAULT_SIZE_LIMIT
-                }
-            },
-            Err(err) => {
-                if err == std::env::VarError::NotPresent {
-                    info!("Size limit not set, using default");
-                } else {
-                    warn!("Failed to read size limit from env: {err}, fallback to default");
-                }
-                DEFAULT_SIZE_LIMIT
-            },
-        };
+pub struct DownloadedFile(pub Bytes, pub Option<String>); // content bytes & content type
 
+impl Downloader {
+    pub fn new(size_limit: Option<u64>) -> Self {
         Self {
             client: Client::new(),
-            size_limit,
+            size_limit: size_limit.unwrap_or(DEFAULT_SIZE_LIMIT),
         }
     }
 
-    pub async fn download_file(&self, url: &str, host: Option<&String>, ua: &str) -> Result<(Bytes, Option<String>), FileDownloadError> {
+    pub async fn download_file(
+        &self,
+        url: &str,
+        host: Option<&String>,
+        ua: &str,
+    ) -> Result<DownloadedFile, FileDownloadError> {
         debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
 
         let mut default_headers = HeaderMap::new();
@@ -64,17 +49,33 @@ impl Downloader {
 
         // First try: direct download
         debug!("Trying direct download...");
-        let mut resp = self.client.get(url).headers(default_headers).send().await.map_err(FileDownloadError::RequestError)?;
+        let mut resp = self
+            .client
+            .get(url)
+            .headers(default_headers)
+            .send()
+            .await
+            .map_err(FileDownloadError::RequestError)?;
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
         if resp.status().is_client_error() {
-            debug!("Direct download failed {} {}, retrying with host specified", resp.status(), url);
+            debug!(
+                "Direct download failed {} {}, retrying with host specified",
+                resp.status(),
+                url
+            );
             if let Some(host) = host {
                 let mut additional_headers = HeaderMap::new();
                 additional_headers.insert(USER_AGENT, ua.parse().unwrap());
                 additional_headers.insert(REFERER, host.parse().unwrap());
 
-                resp = self.client.get(url).headers(additional_headers).send().await.map_err(FileDownloadError::RequestError)?;
+                resp = self
+                    .client
+                    .get(url)
+                    .headers(additional_headers)
+                    .send()
+                    .await
+                    .map_err(FileDownloadError::RequestError)?;
             }
         }
 
@@ -101,7 +102,10 @@ impl Downloader {
 
         // Nothing wrong, let's download the entire response body and return
         debug!("Length pre-check OK, downloading entire body...");
-        let ct = resp.headers().get(CONTENT_TYPE).map(|ct| ct.to_str().unwrap().to_string());
+        let ct = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .map(|ct| ct.to_str().unwrap().to_string());
         let mut limited_buf = Vec::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
@@ -112,10 +116,9 @@ impl Downloader {
         }
 
         debug!("Response body downloaded, return. ContentType: {ct:?}");
-        Ok((Bytes::from(limited_buf), ct))
+        Ok(DownloadedFile(Bytes::from(limited_buf), ct))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -123,14 +126,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_file() {
-        let downloader = Downloader::new();
-        let file = downloader.download_file("https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png", None, "MediaProxyRS@Debug").await;
+        let downloader = Downloader::new(None); // use default size limit
+        let file = downloader
+            .download_file(
+                "https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
+                None,
+                "MediaProxyRS@Debug",
+            )
+            .await;
         assert!(file.is_ok());
-        if let Ok((bytes, ct)) = file {
+        if let Ok(DownloadedFile(bytes, ct)) = file {
             assert!(bytes.len() > 0);
-            assert_eq!(ct, Some(
-                "image/png".to_string()
-            ))
+            assert_eq!(ct, Some("image/png".to_string()))
         }
+    }
+
+    #[tokio::test]
+    async fn test_size_limit() {
+        let downloader = Downloader::new(Some(6));
+        let file = downloader
+            .download_file(
+                "https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
+                None,
+                "MediaProxyRS@Debug",
+            )
+            .await;
+        assert!(file.is_err());
     }
 }
