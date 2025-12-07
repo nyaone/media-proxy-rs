@@ -150,7 +150,8 @@ mod tests {
                 None,
                 "MediaProxyRS@Debug",
             )
-            .await {
+            .await
+        {
             Err(FileDownloadError::Oversize) => (),
             _ => panic!("Wrong status"),
         };
