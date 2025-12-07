@@ -144,13 +144,15 @@ mod tests {
     #[tokio::test]
     async fn test_size_limit() {
         let downloader = Downloader::new(Some(6));
-        let file = downloader
+        match downloader
             .download_file(
                 "https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
                 "MediaProxyRS@Debug",
             )
-            .await;
-        assert!(file.is_err());
+            .await {
+            Err(FileDownloadError::Oversize) => (),
+            _ => panic!("Wrong status"),
+        };
     }
 }
