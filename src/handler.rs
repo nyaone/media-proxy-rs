@@ -1,18 +1,17 @@
 mod decode;
 mod download;
+mod encode;
 mod processors;
 
 use crate::downloader::{DownloadedFile, Downloader};
+use crate::handler::decode::DecodeImageError;
 use bytes::Bytes;
 use download::DownloadImageError;
 use http::StatusCode;
-use image::codecs::gif::GifEncoder;
-use image::{Frame, GenericImageView, ImageFormat};
+use image::ImageFormat;
 use processors::{shrink_inside_vec, shrink_outside_vec};
 use std::collections::HashMap;
-use std::default::Default;
 use std::ffi::OsStr;
-use std::io::{Cursor, Write};
 use std::path::Path;
 use tracing::error;
 
@@ -37,34 +36,40 @@ pub async fn proxy_image(
     /**********************************/
     /* Step 1: Download initial image */
     /**********************************/
-    let mut downloaded_image =
-        match download::download_image(downloader, query.get("url"), query.get("host"), ua).await {
-            Ok(value) => value,
-            Err(err) => {
-                return Err(match err {
-                    DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
-                        ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
-                    }
-                    DownloadImageError::RecursiveProxy => {
-                        ProxyImageError::StatusCodeOnly(StatusCode::FORBIDDEN)
-                    }
-                    DownloadImageError::DownloadErrorOversize(url) => {
-                        ProxyImageError::Redirectable(url.to_string())
-                    }
-                    DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
-                        ProxyImageError::StatusCodeOnly(status_code)
-                    }
-                    DownloadImageError::DownloadErrorRequest => {
-                        ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
-                    }
-                    DownloadImageError::NotAnImage(file)
-                    | DownloadImageError::DecodeError(file) => ProxyImageError::BytesOnly(file),
-                });
-            }
-        };
+    let downloaded_file =
+        download::download_image(downloader, query.get("url"), query.get("host"), ua)
+            .await
+            .map_err(|err| match err {
+                DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
+                }
+                DownloadImageError::RecursiveProxy => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::FORBIDDEN)
+                }
+                DownloadImageError::DownloadErrorOversize(url) => {
+                    ProxyImageError::Redirectable(url.to_string())
+                }
+                DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
+                    ProxyImageError::StatusCodeOnly(status_code)
+                }
+                DownloadImageError::DownloadErrorRequest => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+                DownloadImageError::NotAnImage(file) => ProxyImageError::BytesOnly(file),
+            })?;
 
     /******************************************/
-    /* Step 2: Process the image as requested */
+    /* Step 2: Decode the downloaded image    */
+    /******************************************/
+    let mut downloaded_image = decode::decode_image(&downloaded_file.0).map_err(|err| {
+        if let DecodeImageError::ImageError(err) = err {
+            error!("Failed to decode image: {err}");
+        } // else is unsupported, which has already been reported
+        ProxyImageError::BytesOnly(downloaded_file)
+    })?;
+
+    /******************************************/
+    /* Step 3: Process the image as requested */
     /******************************************/
 
     // Check target format
@@ -114,68 +119,13 @@ pub async fn proxy_image(
     // and it should be returned as-is when decoding fails above.
     // Rejected type also provided unchanged (I guess).
 
-    // Encode image using target format
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut buffer = Cursor::new(&mut bytes);
-    let first_frame = downloaded_image[0].0.clone(); // todo: find a better way
-    let frames: Vec<Frame> = downloaded_image
-        .into_iter()
-        .map(|img| Frame::from_parts(img.0.to_rgba8(), 0, 0, img.1))
-        .collect();
-
-    if let Err(err) = match target_format {
-        ImageFormat::WebP => {
-            let mut encoder = webp_animation::Encoder::new_with_options(
-                first_frame.dimensions(),
-                webp_animation::EncoderOptions {
-                    anim_params: webp_animation::AnimParams { loop_count: 0 },
-                    allow_mixed: true,
-                    encoding_config: Some(webp_animation::EncodingConfig {
-                        encoding_type: webp_animation::EncodingType::Lossy(
-                            webp_animation::LossyEncodingConfig {
-                                alpha_quality: 95,
-                                ..Default::default()
-                            },
-                        ),
-                        quality: 77f32,
-                        method: 2,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-
-            let mut current_ts = 0;
-            for frame in frames {
-                // Encode one frame
-                encoder.add_frame(&frame.buffer(), current_ts).unwrap();
-
-                // Calc the duration (delay)
-                let frame_delay_tuple = frame.delay().numer_denom_ms();
-                let frame_delay = (frame_delay_tuple.0 / frame_delay_tuple.1) as i32;
-                current_ts += frame_delay;
-            }
-
-            let webp_data = encoder.finalize(current_ts).unwrap();
-            buffer.write_all(&webp_data).unwrap();
-            Ok(())
-        }
-        ImageFormat::Gif => GifEncoder::new(buffer).encode_frames(frames),
-        _ => first_frame.write_to(buffer, target_format),
-    } {
-        // Image encoder failed
-        error!("Failed to encode image: {err}");
-        return Err(ProxyImageError::StatusCodeOnly(
-            StatusCode::INTERNAL_SERVER_ERROR,
-        ));
-    } // else: nothing happens
-
-    // Return with encoded bytes
-    Ok(BytesAndMime(
-        Bytes::from(bytes),
-        target_format.to_mime_type().to_string(),
-    ))
+    /******************************************/
+    /* Step 4: Encode into target format      */
+    /******************************************/
+    encode::encode_image(downloaded_image, target_format).map_err(|_| {
+        // ProxyImageError::BytesOnly(downloaded_file)
+        ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
+    })
 }
 
 #[cfg(test)]

@@ -84,7 +84,6 @@ pub enum DecodeImageError {
 }
 
 pub fn decode_image(
-    url: &String,
     downloaded_bytes: &Bytes,
 ) -> Result<Vec<(DynamicImage, Delay)>, DecodeImageError> {
     // Check whether the file is an image (don't trust the content-type header or filename)
@@ -99,7 +98,7 @@ pub fn decode_image(
             decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError)
         }
         None => {
-            info!("Unable to detect format of {url}");
+            info!("Unable to detect format");
             Err(DecodeImageError::Unsupported)
         }
     }

@@ -1,8 +1,5 @@
 use crate::downloader::{DownloadedFile, Downloader, FileDownloadError};
-use crate::handler::decode;
-use crate::handler::decode::DecodeImageError;
 use http::StatusCode;
-use image::{Delay, DynamicImage};
 use tracing::{error, warn};
 
 pub enum DownloadImageError<'a> {
@@ -13,7 +10,6 @@ pub enum DownloadImageError<'a> {
     DownloadErrorInvalidStatus(StatusCode),
     DownloadErrorRequest,
     NotAnImage(DownloadedFile),
-    DecodeError(DownloadedFile),
 }
 
 pub async fn download_image<'a>(
@@ -21,7 +17,7 @@ pub async fn download_image<'a>(
     url: Option<&'a String>,
     host: Option<&String>,
     ua: Option<&str>,
-) -> Result<Vec<(DynamicImage, Delay)>, DownloadImageError<'a>> {
+) -> Result<DownloadedFile, DownloadImageError<'a>> {
     // Check if url parameter is specified
     if url.is_none() {
         // Missing url
@@ -78,14 +74,5 @@ pub async fn download_image<'a>(
         }
     }
 
-    // Decode image
-    match decode::decode_image(url, &downloaded_file.0) {
-        Ok(decoded_image) => Ok(decoded_image),
-        Err(err) => {
-            if let DecodeImageError::ImageError(err) = err {
-                error!("Failed to decode image: {url}, {err}");
-            } // else is unsupported, which has already been reported
-            Err(DownloadImageError::DecodeError(downloaded_file))
-        }
-    }
+    Ok(downloaded_file)
 }

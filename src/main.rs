@@ -38,7 +38,7 @@ pub fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
 pub fn response_raw(
     (bytes, ct): (Bytes, Option<String>),
 ) -> Response<BoxBody<Bytes, hyper::Error>> {
-    let mut response = Response::new(Full::new(bytes).map_err(|never| match never {}).boxed());
+    let mut response = Response::new(full(bytes));
     if let Some(ct) = ct {
         response
             .headers_mut()
