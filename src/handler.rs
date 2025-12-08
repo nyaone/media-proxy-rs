@@ -61,12 +61,15 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 2: Decode the downloaded image    */
     /******************************************/
-    let mut downloaded_image = decode::decode_image(&downloaded_file.0).map_err(|err| {
-        if let DecodeImageError::ImageError(err) = err {
-            error!("Failed to decode image: {err}");
-        } // else is unsupported, which has already been reported
-        ProxyImageError::BytesOnly(downloaded_file)
-    })?;
+    let mut downloaded_image = match decode::decode_image(&downloaded_file.0) {
+        Ok(image) => image,
+        Err(err) => {
+            if let DecodeImageError::ImageError(err) = err {
+                error!("Failed to decode image: {err}");
+            } // else is unsupported, which has already been reported
+            return Err(ProxyImageError::BytesOnly(downloaded_file));
+        }
+    };
 
     /******************************************/
     /* Step 3: Process the image as requested */
@@ -122,10 +125,8 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 4: Encode into target format      */
     /******************************************/
-    encode::encode_image(downloaded_image, target_format).map_err(|_| {
-        // ProxyImageError::BytesOnly(downloaded_file)
-        ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
-    })
+    encode::encode_image(downloaded_image, target_format)
+        .map_err(|_| ProxyImageError::BytesOnly(downloaded_file))
 }
 
 #[cfg(test)]
