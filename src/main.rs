@@ -87,7 +87,7 @@ async fn handle(
                         *response.status_mut() = StatusCode::FOUND;
                         response
                             .headers_mut()
-                            .insert("Location", url.parse().unwrap());
+                            .insert(http::header::LOCATION, url.parse().unwrap());
                         response
                     }
                     ProxyImageError::BytesOnly(file) => response_raw((file.0, file.1)),
