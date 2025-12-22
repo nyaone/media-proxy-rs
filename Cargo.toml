@@ -3,6 +3,10 @@ name = "media-proxy-rs"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+bench = false
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 # http server
 hyper = { version = "1", features = ["full"] }
