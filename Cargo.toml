@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+name = "media_proxy_rs_lib"
 bench = false
 crate-type = ["rlib", "cdylib"]
 
