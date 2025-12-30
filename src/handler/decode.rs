@@ -4,6 +4,9 @@ use image::codecs::png::PngDecoder;
 use image::codecs::webp::WebPDecoder;
 use image::{AnimationDecoder, Delay, DynamicImage, Frame, ImageDecoder, ImageFormat, ImageReader};
 use std::io::Cursor;
+use tracing::warn;
+
+#[cfg(not(feature = "anim"))]
 use tracing::info;
 
 fn static_image(
@@ -95,10 +98,27 @@ pub fn decode_image(
 
     match img_reader.format() {
         Some(format) => {
-            decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError)
+            let decoded = decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError);
+
+            #[cfg(feature = "anim")]
+            {
+                decoded
+            }
+
+            #[cfg(not(feature = "anim"))]
+            if let Ok(decoded) = decoded {
+                if decoded.len() > 1 {
+                    info!("Animated image support not enabled");
+                    Err(DecodeImageError::Unsupported)
+                } else {
+                    Ok(decoded)
+                }
+            } else {
+                decoded
+            }
         }
         None => {
-            info!("Unable to detect format");
+            warn!("Unable to detect format");
             Err(DecodeImageError::Unsupported)
         }
     }

@@ -8,10 +8,19 @@ name = "media_proxy_rs_lib"
 bench = false
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = []
+anim = ["dep:webp-animation"]
+server = ["dep:tokio", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
+
+[[bin]]
+name = "media-proxy-rs"
+required-features = ["server"]
+
 [dependencies]
 # image processing
 image = { version = "0.25", features = ["default-formats"]}
-webp-animation = "0.9"
+webp-animation = { version = "0.9", optional = true }
 
 # utils
 url = "2"
@@ -23,15 +32,14 @@ futures-util = "0.3"
 # develop related
 tracing = "0.1"
 
+# http server
+tokio = { version = "1", features = ["full"], optional = true }
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["full"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { version = "0.12", features = ["stream"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# http server
-hyper = { version = "1", features = ["full"] }
-tokio = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = { version = "0.1" }
-
-# utils
 reqwest = { version = "0.12", features = ["default", "stream"] }

@@ -1,9 +1,15 @@
 use crate::handler::BytesAndMime;
 use bytes::Bytes;
 use image::codecs::gif::GifEncoder;
-use image::{Delay, DynamicImage, Frame, GenericImageView, ImageFormat};
-use std::io::{Cursor, Write};
+use image::{Delay, DynamicImage, Frame, ImageFormat};
+use std::io::{Cursor};
 use tracing::error;
+
+#[cfg(feature = "anim")]
+use std::io::{Write};
+#[cfg(feature = "anim")]
+use image::{GenericImageView};
+#[cfg(feature = "anim")]
 use webp_animation::WebPData;
 
 #[inline]
@@ -14,6 +20,7 @@ fn images_to_frames(images: Vec<(DynamicImage, Delay)>) -> Vec<Frame> {
         .collect()
 }
 
+#[cfg(feature = "anim")]
 fn encode_webp(images: Vec<(DynamicImage, Delay)>) -> Result<WebPData, webp_animation::Error> {
     let dimensions = images[0].0.dimensions();
     let frames = images_to_frames(images);
@@ -57,9 +64,15 @@ pub fn encode_image(
     target_format: ImageFormat,
 ) -> Result<BytesAndMime, ()> {
     let mut bytes: Vec<u8> = Vec::new();
+
+    #[cfg(feature = "anim")]
     let mut buffer = Cursor::new(&mut bytes);
 
+    #[cfg(not(feature = "anim"))]
+    let buffer = Cursor::new(&mut bytes);
+
     match target_format {
+        #[cfg(feature = "anim")]
         ImageFormat::WebP => {
             let webp_data = encode_webp(images).map_err(|err| {
                 error!("Failed to encode webp image: {err}");
