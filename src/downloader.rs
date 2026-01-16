@@ -129,7 +129,7 @@ mod tests {
         let downloader = Downloader::new(None); // use default size limit
         let file = downloader
             .download_file(
-                "https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
+                "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
                 "MediaProxyRS@Debug",
             )
@@ -146,7 +146,7 @@ mod tests {
         let downloader = Downloader::new(Some(6));
         match downloader
             .download_file(
-                "https://sh.nfs.pub/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
+                "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
                 "MediaProxyRS@Debug",
             )

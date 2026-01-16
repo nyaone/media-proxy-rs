@@ -140,7 +140,7 @@ mod tests {
             ("emoji".to_string(), "1".to_string()),
             (
                 "url".to_string(),
-                "https://sh.nfs.pub/nyaone/7006d5af-fe08-4f50-93ef-0aabd1ec155b.webp".to_string(),
+                "https://public.nyaone-object-storage.com/nyaone/7006d5af-fe08-4f50-93ef-0aabd1ec155b.webp".to_string(),
             ),
         ]);
         let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
@@ -158,7 +158,7 @@ mod tests {
             ("emoji".to_string(), "1".to_string()),
             (
                 "url".to_string(),
-                "https://sh.nfs.pub/nyaone/d35b447f-0bfe-4383-97a2-c878557efd90.gif".to_string(),
+                "https://public.nyaone-object-storage.com/nyaone/d35b447f-0bfe-4383-97a2-c878557efd90.gif".to_string(),
             ),
         ]);
         let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
