@@ -39,7 +39,7 @@ pub async fn download_image<'a>(
         || proxy_host.is_some_and(|host| {
             url.unwrap()
                 .to_lowercase()
-                .contains(("/" + host.to_lowercase() + "/").as_str())
+                .contains(format!("/{}/", host.to_lowercase()).as_str())
         })
     {
         // Recursive proxying
