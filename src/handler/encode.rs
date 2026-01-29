@@ -2,13 +2,13 @@ use crate::handler::BytesAndMime;
 use bytes::Bytes;
 use image::codecs::gif::GifEncoder;
 use image::{Delay, DynamicImage, Frame, ImageFormat};
-use std::io::{Cursor};
+use std::io::Cursor;
 use tracing::error;
 
 #[cfg(feature = "anim")]
-use std::io::{Write};
+use image::GenericImageView;
 #[cfg(feature = "anim")]
-use image::{GenericImageView};
+use std::io::Write;
 #[cfg(feature = "anim")]
 use webp_animation::WebPData;
 

@@ -98,7 +98,8 @@ pub fn decode_image(
 
     match img_reader.format() {
         Some(format) => {
-            let decoded = decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError);
+            let decoded =
+                decode_image_format(img_reader, format).map_err(DecodeImageError::ImageError);
 
             #[cfg(feature = "anim")]
             {
