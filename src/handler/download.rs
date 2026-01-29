@@ -15,8 +15,9 @@ pub enum DownloadImageError<'a> {
 pub async fn download_image<'a>(
     downloader: &Downloader,
     url: Option<&'a String>,
-    host: Option<&String>,
+    instance_host: Option<&String>,
     ua: Option<&str>,
+    proxy_host: Option<&str>,
 ) -> Result<DownloadedFile, DownloadImageError<'a>> {
     // Check if url parameter is specified
     if url.is_none() {
@@ -33,15 +34,16 @@ pub async fn download_image<'a>(
     }
 
     let ua = ua.unwrap(); // Shadow the parameter value
-    if ua.to_lowercase().contains("misskey/") {
+
+    if ua.to_lowercase().contains("misskey/") || proxy_host.is_some_and(|host| url.unwrap().to_lowercase().contains(("/"+host.to_lowercase()+"/").as_str())) {
         // Recursive proxying
-        warn!("Recursive proxying from {ua}");
+        warn!("Recursive proxying");
         return Err(DownloadImageError::RecursiveProxy);
     }
 
     // Start download
     let url = url.unwrap();
-    let downloaded_file = match downloader.download_file(url, host, ua).await {
+    let downloaded_file = match downloader.download_file(url, instance_host, ua).await {
         Ok(b) => b,
         Err(e) => {
             return Err(match e {
