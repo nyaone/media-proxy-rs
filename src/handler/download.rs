@@ -66,14 +66,12 @@ pub async fn download_image<'a>(
     };
 
     // Check possible mimetype of the downloaded file
-    if downloaded_file
-        .1
-        .as_ref()
-        .is_some_and(|ct| !ct.starts_with("image/"))
-    {
-        // Not image, return raw bytes
-        warn!("Not an image ({ct}): {url}");
-        return Err(DownloadImageError::NotAnImage(downloaded_file));
+    if let Some(ct) = downloaded_file.1.as_ref() {
+        if !ct.starts_with("image/") {
+            // Not image, return raw bytes
+            warn!("Not an image ({ct}): {url}");
+            return Err(DownloadImageError::NotAnImage(downloaded_file));
+        }
     }
 
     Ok(downloaded_file)
