@@ -28,7 +28,6 @@ pub async fn proxy_image(
     path: &str,
     query: HashMap<String, String>,
     ua: Option<&str>,
-    proxy_host: Option<&str>,
 ) -> Result<BytesAndMime, ProxyImageError> {
     // Note: these logics come from
     // https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L293-L479
@@ -37,32 +36,27 @@ pub async fn proxy_image(
     /**********************************/
     /* Step 1: Download initial image */
     /**********************************/
-    let downloaded_file = download::download_image(
-        downloader,
-        query.get("url"),
-        query.get("host"),
-        ua,
-        proxy_host,
-    )
-    .await
-    .map_err(|err| match err {
-        DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
-            ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
-        }
-        DownloadImageError::RecursiveProxy => {
-            ProxyImageError::StatusCodeOnly(StatusCode::FORBIDDEN)
-        }
-        DownloadImageError::DownloadErrorOversize(url) => {
-            ProxyImageError::Redirectable(url.to_string())
-        }
-        DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
-            ProxyImageError::StatusCodeOnly(status_code)
-        }
-        DownloadImageError::DownloadErrorRequest => {
-            ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-        DownloadImageError::NotAnImage(file) => ProxyImageError::BytesOnly(file),
-    })?;
+    let downloaded_file =
+        download::download_image(downloader, query.get("url"), query.get("host"), ua)
+            .await
+            .map_err(|err| match err {
+                DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
+                }
+                DownloadImageError::RecursiveProxy => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::FORBIDDEN)
+                }
+                DownloadImageError::DownloadErrorOversize(url) => {
+                    ProxyImageError::Redirectable(url.to_string())
+                }
+                DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
+                    ProxyImageError::StatusCodeOnly(status_code)
+                }
+                DownloadImageError::DownloadErrorRequest => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+                DownloadImageError::NotAnImage(file) => ProxyImageError::BytesOnly(file),
+            })?;
 
     /******************************************/
     /* Step 2: Decode the downloaded image    */
@@ -149,14 +143,7 @@ mod tests {
                 "https://public.nyaone-object-storage.com/nyaone/7006d5af-fe08-4f50-93ef-0aabd1ec155b.webp".to_string(),
             ),
         ]);
-        let file = proxy_image(
-            &downloader,
-            "image.webp",
-            query,
-            Some("MediaProxyRS@Debug"),
-            None,
-        )
-        .await;
+        let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
         assert!(file.is_ok());
         if let Ok(BytesAndMime(bytes, ct)) = file {
             assert!(bytes.len() > 0);
@@ -174,14 +161,7 @@ mod tests {
                 "https://public.nyaone-object-storage.com/nyaone/d35b447f-0bfe-4383-97a2-c878557efd90.gif".to_string(),
             ),
         ]);
-        let file = proxy_image(
-            &downloader,
-            "image.webp",
-            query,
-            Some("MediaProxyRS@Debug"),
-            None,
-        )
-        .await;
+        let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
         assert!(file.is_ok());
         if let Ok(BytesAndMime(bytes, ct)) = file {
             assert!(bytes.len() > 0);

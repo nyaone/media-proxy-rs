@@ -64,7 +64,6 @@ async fn handle(
                 req.headers()
                     .get(http::header::USER_AGENT)
                     .map(|ua| ua.to_str().unwrap()),
-                uri.host(),
             )
             .await
             {
