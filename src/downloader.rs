@@ -3,10 +3,13 @@ use futures_util::stream::StreamExt;
 use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
+use std::sync::{Arc, Mutex};
 use tracing::debug;
+use url::Url;
 
 pub enum FileDownloadError {
     Oversize,
+    InvalidUrl,
     InvalidStatusCode(StatusCode),
     RequestError(reqwest::Error),
 }
@@ -16,6 +19,7 @@ const DEFAULT_SIZE_LIMIT: u64 = 100_000_000; // 100MB
 pub struct Downloader {
     client: Client,
     size_limit: u64,
+    troublesome_instances: Arc<Mutex<Vec<String>>>,
 }
 
 impl Clone for Downloader {
@@ -23,6 +27,7 @@ impl Clone for Downloader {
         Self {
             client: self.client.clone(),
             size_limit: self.size_limit,
+            troublesome_instances: self.troublesome_instances.clone(),
         }
     }
 }
@@ -38,6 +43,7 @@ impl Downloader {
         Self {
             client: Client::new(),
             size_limit: size_limit.unwrap_or(DEFAULT_SIZE_LIMIT),
+            troublesome_instances: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -47,42 +53,72 @@ impl Downloader {
         host: Option<&String>,
         ua: &str,
     ) -> Result<DownloadedFile, FileDownloadError> {
-        debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
+        debug!("Downloading file: {url}");
 
-        let mut default_headers = HeaderMap::new();
-        default_headers.insert(USER_AGENT, format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION")).parse().unwrap());
+        // Get target host of instance
+        let parsed_url = Url::parse(url).map_err(|_| FileDownloadError::InvalidUrl)?;
+        let target_host = parsed_url
+            .host_str()
+            .ok_or(FileDownloadError::InvalidUrl)?
+            .to_string();
 
-        // First try: direct download
-        debug!("Trying direct download...");
-        let mut resp = self
-            .client
-            .get(url)
-            .headers(default_headers)
-            .send()
-            .await
-            .map_err(FileDownloadError::RequestError)?;
+        let mut resp: Option<reqwest::Response> = None;
 
-        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
-        if resp.status().is_client_error() {
-            debug!(
-                "Direct download failed {} {}, retrying with host specified",
-                resp.status(),
-                url
+        let worth_first_try = !self
+            .troublesome_instances
+            .lock()
+            .unwrap()
+            .contains(&target_host);
+
+        if worth_first_try {
+            // First try: direct download
+            let mut default_headers = HeaderMap::new();
+            default_headers.insert(
+                USER_AGENT,
+                format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION"))
+                    .parse()
+                    .unwrap(),
             );
-            if let Some(host) = host {
-                let mut additional_headers = HeaderMap::new();
-                additional_headers.insert(USER_AGENT, ua.parse().unwrap());
-                additional_headers.insert(REFERER, host.parse().unwrap());
 
-                resp = self
-                    .client
+            debug!("Trying direct download...");
+            resp = Some(
+                self.client
                     .get(url)
-                    .headers(additional_headers)
+                    .headers(default_headers)
                     .send()
                     .await
-                    .map_err(FileDownloadError::RequestError)?;
+                    .map_err(FileDownloadError::RequestError)?,
+            );
+        }
+
+        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
+        if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
+            if let Some(host) = host {
+                debug!(
+                    "Direct download failed {} {url}, retrying with Host: {host:?}, UserAgent: {ua}",
+                    resp.unwrap().status(),
+                );
+                let mut retry_headers = HeaderMap::new();
+                retry_headers.insert(USER_AGENT, ua.parse().unwrap());
+                retry_headers.insert(REFERER, host.parse().unwrap());
+
+                resp = Some(
+                    self.client
+                        .get(url)
+                        .headers(retry_headers)
+                        .send()
+                        .await
+                        .map_err(FileDownloadError::RequestError)?,
+                );
+
+                if resp.as_ref().is_some_and(|r| r.status().is_success()) {
+                    // It is really a nasty host
+                    self.troublesome_instances.lock().unwrap().push(target_host);
+                } // else: the target host might be dead
             }
         }
+
+        let resp = resp.unwrap();
 
         // Check status code
         debug!("Download finish, checking status code...");

@@ -53,6 +53,9 @@ pub async fn proxy_image(
                 DownloadImageError::DownloadErrorOversize(url) => {
                     ProxyImageError::Redirectable(url.to_string())
                 }
+                DownloadImageError::DownloadErrorInvalidUrl => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
+                }
                 DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
                     ProxyImageError::StatusCodeOnly(status_code)
                 }
