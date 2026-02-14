@@ -5,6 +5,7 @@ use crate::downloader::Downloader;
 use crate::handler::{ProxyImageError, proxy_image};
 use bytes::Bytes;
 use http::{Request, Response, StatusCode};
+use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, LOCATION, USER_AGENT};
 use http_body_util::{BodyExt, combinators::BoxBody};
 use http_body_util::{Empty, Full};
 use hyper::server::conn::http1;
@@ -42,7 +43,7 @@ pub fn response_raw(
     if let Some(ct) = ct {
         response
             .headers_mut()
-            .insert(http::header::CONTENT_TYPE, ct.parse().unwrap());
+            .insert(CONTENT_TYPE, ct.parse().unwrap());
     }
     response
 }
@@ -62,7 +63,7 @@ async fn handle(
                     .into_owned()
                     .collect(),
                 req.headers()
-                    .get(http::header::USER_AGENT)
+                    .get(USER_AGENT)
                     .map(|ua| ua.to_str().unwrap()),
             )
             .await
@@ -70,11 +71,11 @@ async fn handle(
                 Ok(file) => {
                     let mut response = response_raw((file.bytes, Some(file.content_type)));
                     response.headers_mut().insert(
-                        http::header::CACHE_CONTROL,
+                        CACHE_CONTROL,
                         "max-age=31536000, immutable".parse().unwrap(),
                     );
                     response.headers_mut().insert(
-                        http::header::CONTENT_DISPOSITION,
+                        CONTENT_DISPOSITION,
                         format!("inline; filename=\"{}\"", file.filename).parse().unwrap(),
                     );
                     response
@@ -90,7 +91,7 @@ async fn handle(
                         *response.status_mut() = StatusCode::FOUND;
                         response
                             .headers_mut()
-                            .insert(http::header::LOCATION, url.parse().unwrap());
+                            .insert(LOCATION, url.parse().unwrap());
                         response
                     }
                     ProxyImageError::BytesOnly(file) => response_raw((file.bytes, file.content_type)),
