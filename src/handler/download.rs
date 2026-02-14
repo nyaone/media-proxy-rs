@@ -7,6 +7,7 @@ pub enum DownloadImageError<'a> {
     MissingUA,
     RecursiveProxy,
     DownloadErrorOversize(&'a String),
+    DownloadErrorInvalidUrl,
     DownloadErrorInvalidStatus(StatusCode),
     DownloadErrorRequest,
     NotAnImage(DownloadedFile),
@@ -49,6 +50,10 @@ pub async fn download_image<'a>(
                     // too large to process, redirect instead
                     warn!("File too large: {url}");
                     DownloadImageError::DownloadErrorOversize(url)
+                }
+                FileDownloadError::InvalidUrl => {
+                    warn!("Invalid url: {url}");
+                    DownloadImageError::DownloadErrorInvalidUrl
                 }
                 FileDownloadError::InvalidStatusCode(status_code) => {
                     warn!("Invalid status code: {url}, {status_code}");

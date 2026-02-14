@@ -105,7 +105,10 @@ async fn start_server(
     downloader: Downloader,
     addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("MediaProxyRS@NyaOne #{} starting...", env!("CARGO_PKG_VERSION"));
+    info!(
+        "MediaProxyRS@NyaOne #{} starting...",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
     let listener = TcpListener::bind(addr).await?;
