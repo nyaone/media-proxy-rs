@@ -16,8 +16,6 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use url::form_urlencoded;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 // We create some utility functions to make Empty and Full bodies
 // fit our broadened Response body type.
 
@@ -107,7 +105,7 @@ async fn start_server(
     downloader: Downloader,
     addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("MediaProxyRS@NyaOne #{VERSION} starting...");
+    info!("MediaProxyRS@NyaOne #{} starting...", env!("CARGO_PKG_VERSION"));
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
     let listener = TcpListener::bind(addr).await?;
