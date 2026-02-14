@@ -33,7 +33,7 @@ pub async fn download_image<'a>(
     }
 
     let ua = ua.unwrap(); // Shadow the parameter value
-    if ua.to_lowercase().contains("misskey/") {
+    if ua.to_lowercase().contains("misskey/") || ua.to_lowercase().contains("misskeymediaproxy") {
         // Recursive proxying
         warn!("Recursive proxying");
         return Err(DownloadImageError::RecursiveProxy);

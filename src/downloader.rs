@@ -50,7 +50,7 @@ impl Downloader {
         debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
 
         let mut default_headers = HeaderMap::new();
-        default_headers.insert(USER_AGENT, ua.parse().unwrap());
+        default_headers.insert(USER_AGENT, format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION")).parse().unwrap());
 
         // First try: direct download
         debug!("Trying direct download...");
@@ -62,7 +62,7 @@ impl Downloader {
             .await
             .map_err(FileDownloadError::RequestError)?;
 
-        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
+        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
         if resp.status().is_client_error() {
             debug!(
                 "Direct download failed {} {}, retrying with host specified",
