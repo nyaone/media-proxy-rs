@@ -100,7 +100,7 @@ pub fn encode_image(
     }
 
     // Return with encoded bytes
-    Ok(ProxyImageResult{
+    Ok(ProxyImageResult {
         bytes: Bytes::from(bytes),
         content_type: target_format.to_mime_type().to_string(),
         filename,

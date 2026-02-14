@@ -4,8 +4,8 @@ mod handler;
 use crate::downloader::Downloader;
 use crate::handler::{ProxyImageError, proxy_image};
 use bytes::Bytes;
-use http::{Request, Response, StatusCode};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, LOCATION, USER_AGENT};
+use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, combinators::BoxBody};
 use http_body_util::{Empty, Full};
 use hyper::server::conn::http1;
@@ -62,9 +62,7 @@ async fn handle(
                 form_urlencoded::parse(query.as_bytes())
                     .into_owned()
                     .collect(),
-                req.headers()
-                    .get(USER_AGENT)
-                    .map(|ua| ua.to_str().unwrap()),
+                req.headers().get(USER_AGENT).map(|ua| ua.to_str().unwrap()),
             )
             .await
             {
@@ -76,7 +74,9 @@ async fn handle(
                     );
                     response.headers_mut().insert(
                         CONTENT_DISPOSITION,
-                        format!("inline; filename=\"{}\"", file.filename).parse().unwrap(),
+                        format!("inline; filename=\"{}\"", file.filename)
+                            .parse()
+                            .unwrap(),
                     );
                     response
                 }
@@ -94,7 +94,9 @@ async fn handle(
                             .insert(LOCATION, url.parse().unwrap());
                         response
                     }
-                    ProxyImageError::BytesOnly(file) => response_raw((file.bytes, file.content_type)),
+                    ProxyImageError::BytesOnly(file) => {
+                        response_raw((file.bytes, file.content_type))
+                    }
                 },
             },
         ),

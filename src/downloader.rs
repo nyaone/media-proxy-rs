@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use futures_util::stream::StreamExt;
 use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
-use reqwest::header::{HeaderMap};
+use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use tracing::debug;
 
@@ -27,7 +27,7 @@ impl Clone for Downloader {
     }
 }
 
-pub struct DownloadedFile{
+pub struct DownloadedFile {
     pub bytes: Bytes,
     pub content_type: Option<String>,
     pub filename: String,
@@ -137,9 +137,9 @@ impl Downloader {
         }
 
         debug!("Response body downloaded, return. ContentType: {ct:?}");
-        Ok(DownloadedFile{
-            bytes: Bytes::from(limited_buf), 
-            content_type: ct, 
+        Ok(DownloadedFile {
+            bytes: Bytes::from(limited_buf),
+            content_type: ct,
             filename,
         })
     }
