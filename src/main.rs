@@ -74,7 +74,7 @@ async fn handle(
                     );
                     response.headers_mut().insert(
                         CONTENT_DISPOSITION,
-                        format!("inline; filename=\"{}\"", file.filename)
+                        format!("inline; filename=\"{}\"", file.filename) // this implementation is temporary as it cannot handle encoded filenames (also refer to downloader) // todo
                             .parse()
                             .unwrap(),
                     );

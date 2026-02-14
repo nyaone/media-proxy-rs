@@ -108,7 +108,7 @@ impl Downloader {
             }
         }
 
-        // Set filename
+        // Set filename // todo: handle encoded filenames
         debug!("Getting filename...");
         let mut filename = url.split('/').next_back().unwrap_or("unknown").to_string();
         if let Some(content_disposition) = resp_headers.get(CONTENT_DISPOSITION) {
