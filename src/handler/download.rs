@@ -66,7 +66,7 @@ pub async fn download_image<'a>(
     };
 
     // Check possible mimetype of the downloaded file
-    if let Some(ct) = downloaded_file.1.as_ref() {
+    if let Some(ct) = downloaded_file.content_type.as_ref() {
         if !ct.starts_with("image/") {
             // Not image, return raw bytes
             warn!("Not an image ({ct}): {url}");

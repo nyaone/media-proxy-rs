@@ -1,4 +1,4 @@
-use crate::handler::BytesAndMime;
+use crate::handler::ProxyImageResult;
 use bytes::Bytes;
 use image::codecs::gif::GifEncoder;
 use image::{Delay, DynamicImage, Frame, ImageFormat};
@@ -62,7 +62,8 @@ fn encode_webp(images: Vec<(DynamicImage, Delay)>) -> Result<WebPData, webp_anim
 pub fn encode_image(
     images: Vec<(DynamicImage, Delay)>,
     target_format: ImageFormat,
-) -> Result<BytesAndMime, ()> {
+    original_filename: String,
+) -> Result<ProxyImageResult, ()> {
     let mut bytes: Vec<u8> = Vec::new();
 
     #[cfg(feature = "anim")]
@@ -91,9 +92,17 @@ pub fn encode_image(
             .map_err(|err| error!("Failed to encode image: {err}")),
     }?;
 
+    // Correct filename with target extension
+    let mut filename = original_filename;
+    let target_extension = format!(".{}", target_format.extensions_str()[0]);
+    if !filename.ends_with(target_extension.as_str()) {
+        filename = format!("{filename}{target_extension}");
+    }
+
     // Return with encoded bytes
-    Ok(BytesAndMime(
-        Bytes::from(bytes),
-        target_format.to_mime_type().to_string(),
-    ))
+    Ok(ProxyImageResult{
+        bytes: Bytes::from(bytes),
+        content_type: target_format.to_mime_type().to_string(),
+        filename,
+    })
 }

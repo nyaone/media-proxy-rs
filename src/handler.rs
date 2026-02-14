@@ -15,7 +15,11 @@ use std::ffi::OsStr;
 use std::path::Path;
 use tracing::error;
 
-pub struct BytesAndMime(pub Bytes, pub String); // content bytes & content type
+pub struct ProxyImageResult {
+    pub bytes: Bytes,
+    pub content_type: String,
+    pub filename: String,
+}
 
 pub enum ProxyImageError {
     StatusCodeOnly(StatusCode),
@@ -28,7 +32,7 @@ pub async fn proxy_image(
     path: &str,
     query: HashMap<String, String>,
     ua: Option<&str>,
-) -> Result<BytesAndMime, ProxyImageError> {
+) -> Result<ProxyImageResult, ProxyImageError> {
     // Note: these logics come from
     // https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L293-L479
     // Some of them have been modified to fit our needs.
@@ -61,7 +65,7 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 2: Decode the downloaded image    */
     /******************************************/
-    let mut downloaded_image = match decode::decode_image(&downloaded_file.0) {
+    let mut downloaded_image = match decode::decode_image(&downloaded_file.bytes) {
         Ok(image) => image,
         Err(err) => {
             if let DecodeImageError::ImageError(err) = err {
@@ -125,7 +129,7 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 4: Encode into target format      */
     /******************************************/
-    encode::encode_image(downloaded_image, target_format)
+    encode::encode_image(downloaded_image, target_format, downloaded_file.filename.to_string())
         .map_err(|_| ProxyImageError::BytesOnly(downloaded_file))
 }
 
@@ -145,9 +149,10 @@ mod tests {
         ]);
         let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
         assert!(file.is_ok());
-        if let Ok(BytesAndMime(bytes, ct)) = file {
-            assert!(bytes.len() > 0);
-            assert_eq!(ct, "image/webp".to_string())
+        if let Ok(image) = file {
+            assert!(image.bytes.len() > 0);
+            assert_eq!(image.content_type, "image/webp".to_string());
+            assert_eq!(image.filename, "LovelyFirefly_7.png.webp".to_string());
         }
     }
 
@@ -163,9 +168,10 @@ mod tests {
         ]);
         let file = proxy_image(&downloader, "image.webp", query, Some("MediaProxyRS@Debug")).await;
         assert!(file.is_ok());
-        if let Ok(BytesAndMime(bytes, ct)) = file {
-            assert!(bytes.len() > 0);
-            assert_eq!(ct, "image/webp".to_string())
+        if let Ok(image) = file {
+            assert!(image.bytes.len() > 0);
+            assert_eq!(image.content_type, "image/webp".to_string());
+            assert_eq!(image.filename, "yuexia_shy.gif.webp".to_string());
         }
     }
 }

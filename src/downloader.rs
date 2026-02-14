@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use futures_util::stream::StreamExt;
-use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, REFERER, USER_AGENT};
+use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap};
 use reqwest::{Client, StatusCode};
 use tracing::debug;
 
@@ -26,7 +27,11 @@ impl Clone for Downloader {
     }
 }
 
-pub struct DownloadedFile(pub Bytes, pub Option<String>); // content bytes & content type
+pub struct DownloadedFile{
+    pub bytes: Bytes,
+    pub content_type: Option<String>,
+    pub filename: String,
+}
 
 impl Downloader {
     pub fn new(size_limit: Option<u64>) -> Self {
@@ -86,13 +91,16 @@ impl Downloader {
             return Err(FileDownloadError::InvalidStatusCode(resp_status));
         }
 
+        // Split response headers
+        let resp_headers = resp.headers();
+
         // Check response size (content length)
         debug!("Status OK, checking content length (if any)...");
         if let Some(size) = resp.content_length() {
             if size > self.size_limit {
                 return Err(FileDownloadError::Oversize);
             }
-        } else if let Some(size_length) = resp.headers().get(CONTENT_LENGTH) {
+        } else if let Some(size_length) = resp_headers.get(CONTENT_LENGTH) {
             if let Ok(size) = size_length.to_str().unwrap().parse::<u64>() {
                 if size > self.size_limit {
                     return Err(FileDownloadError::Oversize);
@@ -100,10 +108,23 @@ impl Downloader {
             }
         }
 
+        // Set filename
+        debug!("Getting filename...");
+        let mut filename = url.split('/').next_back().unwrap_or("unknown").to_string();
+        if let Some(content_disposition) = resp_headers.get(CONTENT_DISPOSITION) {
+            let field_parts = content_disposition.to_str().unwrap().split(';');
+            for part in field_parts {
+                let part = part.trim();
+                if let Some(value) = part.strip_prefix("filename=") {
+                    filename = value.trim_matches('"').to_string();
+                    break;
+                }
+            }
+        }
+
         // Nothing wrong, let's download the entire response body and return
         debug!("Length pre-check OK, downloading entire body...");
-        let ct = resp
-            .headers()
+        let ct = resp_headers
             .get(CONTENT_TYPE)
             .map(|ct| ct.to_str().unwrap().to_string());
         let mut limited_buf = Vec::new();
@@ -116,7 +137,11 @@ impl Downloader {
         }
 
         debug!("Response body downloaded, return. ContentType: {ct:?}");
-        Ok(DownloadedFile(Bytes::from(limited_buf), ct))
+        Ok(DownloadedFile{
+            bytes: Bytes::from(limited_buf), 
+            content_type: ct, 
+            filename,
+        })
     }
 }
 
@@ -135,9 +160,10 @@ mod tests {
             )
             .await;
         assert!(file.is_ok());
-        if let Ok(DownloadedFile(bytes, ct)) = file {
-            assert!(bytes.len() > 0);
-            assert_eq!(ct, Some("image/png".to_string()))
+        if let Ok(downloaded) = file {
+            assert!(downloaded.bytes.len() > 0);
+            assert_eq!(downloaded.content_type, Some("image/png".to_string()));
+            assert_eq!(downloaded.filename, "NyaOne_-_LOGO_-_256x_-_round.png");
         }
     }
 

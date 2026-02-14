@@ -68,12 +68,15 @@ async fn handle(
             .await
             {
                 Ok(file) => {
-                    let mut response = response_raw((file.0, Some(file.1)));
+                    let mut response = response_raw((file.bytes, Some(file.content_type)));
                     response.headers_mut().insert(
                         http::header::CACHE_CONTROL,
                         "max-age=31536000, immutable".parse().unwrap(),
                     );
-                    // response.headers_mut().insert(http::header::CONTENT_DISPOSITION, "inline".parse().unwrap()); // not sure whether this is needed
+                    response.headers_mut().insert(
+                        http::header::CONTENT_DISPOSITION,
+                        format!("inline; filename=\"{}\"", file.filename).parse().unwrap(),
+                    );
                     response
                 }
                 Err(err) => match err {
@@ -90,7 +93,7 @@ async fn handle(
                             .insert(http::header::LOCATION, url.parse().unwrap());
                         response
                     }
-                    ProxyImageError::BytesOnly(file) => response_raw((file.0, file.1)),
+                    ProxyImageError::BytesOnly(file) => response_raw((file.bytes, file.content_type)),
                 },
             },
         ),
