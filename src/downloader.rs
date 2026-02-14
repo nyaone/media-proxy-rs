@@ -3,7 +3,8 @@ use futures_util::stream::StreamExt;
 use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::debug;
 use url::Url;
 
@@ -19,7 +20,7 @@ const DEFAULT_SIZE_LIMIT: u64 = 100_000_000; // 100MB
 pub struct Downloader {
     client: Client,
     size_limit: u64,
-    troublesome_instances: Arc<Mutex<Vec<String>>>,
+    troublesome_instances: Arc<RwLock<Vec<String>>>,
 }
 
 impl Clone for Downloader {
@@ -43,7 +44,7 @@ impl Downloader {
         Self {
             client: Client::new(),
             size_limit: size_limit.unwrap_or(DEFAULT_SIZE_LIMIT),
-            troublesome_instances: Arc::new(Mutex::new(Vec::new())),
+            troublesome_instances: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -64,11 +65,15 @@ impl Downloader {
 
         let mut resp: Option<reqwest::Response> = None;
 
-        let worth_first_try = !self
-            .troublesome_instances
-            .lock()
-            .unwrap()
-            .contains(&target_host);
+        let worth_first_try = {
+            // Put the lock into one specific block
+            // for a quicker release (not sure whether this is necessary)
+            !self
+                .troublesome_instances
+                .read()
+                .await
+                .contains(&target_host)
+        };
 
         if worth_first_try {
             // First try: direct download
@@ -113,7 +118,7 @@ impl Downloader {
 
                 if resp.as_ref().is_some_and(|r| r.status().is_success()) {
                     // It is really a nasty host
-                    self.troublesome_instances.lock().unwrap().push(target_host);
+                    self.troublesome_instances.write().await.push(target_host);
                 } // else: the target host might be dead
             }
         }
