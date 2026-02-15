@@ -65,15 +65,11 @@ impl Downloader {
 
         let mut resp: Option<reqwest::Response> = None;
 
-        let worth_first_try = {
-            // Put the lock into one specific block
-            // for a quicker release (not sure whether this is necessary)
-            !self
-                .troublesome_instances
-                .read()
-                .await
-                .contains(&target_host)
-        };
+        let worth_first_try = !self
+            .troublesome_instances
+            .read()
+            .await
+            .contains(&target_host);
 
         if worth_first_try {
             // First try: direct download
