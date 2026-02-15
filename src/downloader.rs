@@ -5,7 +5,7 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 
 pub enum FileDownloadError {
@@ -94,29 +94,32 @@ impl Downloader {
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
         if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
+            debug!(
+                "Direct download failed {} {url}, retrying with Host: {host:?}, UserAgent: {ua}",
+                resp.unwrap().status(),
+            );
+
+            let mut retry_headers = HeaderMap::new();
+            retry_headers.insert(USER_AGENT, ua.parse().unwrap());
+
             if let Some(host) = host {
-                debug!(
-                    "Direct download failed {} {url}, retrying with Host: {host:?}, UserAgent: {ua}",
-                    resp.unwrap().status(),
-                );
-                let mut retry_headers = HeaderMap::new();
-                retry_headers.insert(USER_AGENT, ua.parse().unwrap());
                 retry_headers.insert(REFERER, host.parse().unwrap());
-
-                resp = Some(
-                    self.client
-                        .get(url)
-                        .headers(retry_headers)
-                        .send()
-                        .await
-                        .map_err(FileDownloadError::RequestError)?,
-                );
-
-                if resp.as_ref().is_some_and(|r| r.status().is_success()) {
-                    // It is really a nasty host
-                    self.troublesome_instances.write().await.push(target_host);
-                } // else: the target host might be dead
             }
+
+            resp = Some(
+                self.client
+                    .get(url)
+                    .headers(retry_headers)
+                    .send()
+                    .await
+                    .map_err(FileDownloadError::RequestError)?,
+            );
+
+            if resp.as_ref().is_some_and(|r| r.status().is_success()) {
+                // It is really a nasty host
+                info!("Host {target_host} marked as troublesome.");
+                self.troublesome_instances.write().await.push(target_host);
+            } // else: the target host might be dead
         }
 
         let resp = resp.unwrap();
