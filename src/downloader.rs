@@ -3,6 +3,7 @@ use futures_util::stream::StreamExt;
 use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
+use std::env;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -52,7 +53,6 @@ impl Downloader {
         &self,
         url: &str,
         host: Option<&String>,
-        ua: &str,
     ) -> Result<DownloadedFile, FileDownloadError> {
         debug!("Downloading file: {url}");
 
@@ -71,15 +71,12 @@ impl Downloader {
             .await
             .contains(&target_host);
 
+        let default_ua = format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION"));
+
         if worth_first_try {
             // First try: direct download
             let mut default_headers = HeaderMap::new();
-            default_headers.insert(
-                USER_AGENT,
-                format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION"))
-                    .parse()
-                    .unwrap(),
-            );
+            default_headers.insert(USER_AGENT, default_ua.parse().unwrap());
 
             debug!("Trying direct download...");
             resp = Some(
@@ -94,13 +91,16 @@ impl Downloader {
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
         if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
-            debug!(
-                "Direct download failed {} {url}, retrying with Host: {host:?}, UserAgent: {ua}",
-                resp.unwrap().status(),
-            );
+            debug!("Direct download failed, retrying with Host: {host:?}",);
 
             let mut retry_headers = HeaderMap::new();
-            retry_headers.insert(USER_AGENT, ua.parse().unwrap());
+            retry_headers.insert(
+                USER_AGENT,
+                env::var("USER_AGENT")
+                    .unwrap_or(default_ua)
+                    .parse()
+                    .unwrap(),
+            );
 
             if let Some(host) = host {
                 retry_headers.insert(REFERER, host.parse().unwrap());
@@ -115,11 +115,11 @@ impl Downloader {
                     .map_err(FileDownloadError::RequestError)?,
             );
 
-            if resp.as_ref().is_some_and(|r| r.status().is_success()) {
+            if resp.as_ref().is_some_and(|r| r.status().is_success()) && worth_first_try {
                 // It is really a nasty host
                 info!("Host {target_host} marked as troublesome.");
                 self.troublesome_instances.write().await.push(target_host);
-            } // else: the target host might be dead
+            } // else: the target host might be dead or already marked
         }
 
         let resp = resp.unwrap();
@@ -196,7 +196,6 @@ mod tests {
             .download_file(
                 "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
-                "MediaProxyRS@Debug",
             )
             .await;
         assert!(file.is_ok());
@@ -214,7 +213,6 @@ mod tests {
             .download_file(
                 "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
-                "MediaProxyRS@Debug",
             )
             .await
         {

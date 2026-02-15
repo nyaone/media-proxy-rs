@@ -44,7 +44,7 @@ pub async fn proxy_image(
         download::download_image(downloader, query.get("url"), query.get("host"), ua)
             .await
             .map_err(|err| match err {
-                DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
+                DownloadImageError::MissingURL => {
                     ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
                 }
                 DownloadImageError::RecursiveProxy => {
