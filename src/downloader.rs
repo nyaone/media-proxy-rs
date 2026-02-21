@@ -100,7 +100,7 @@ impl Downloader {
             retry_headers.insert(USER_AGENT, retry_ua.parse().unwrap());
 
             if let Some(host) = host {
-                retry_headers.insert(REFERER, host.parse().unwrap());
+                retry_headers.insert(REFERER, format!("https://{}/", host).parse().unwrap());
             }
 
             resp = Some(
