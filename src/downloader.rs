@@ -91,16 +91,13 @@ impl Downloader {
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
         if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
-            debug!("Direct download failed, retrying with Host: {host:?}",);
+            let retry_ua = env::var("USER_AGENT").unwrap_or(default_ua);
+
+            debug!("Direct download failed, retrying with Host: {host:?}, UA: {retry_ua}",);
 
             let mut retry_headers = HeaderMap::new();
-            retry_headers.insert(
-                USER_AGENT,
-                env::var("USER_AGENT")
-                    .unwrap_or(default_ua)
-                    .parse()
-                    .unwrap(),
-            );
+
+            retry_headers.insert(USER_AGENT, retry_ua.parse().unwrap());
 
             if let Some(host) = host {
                 retry_headers.insert(REFERER, host.parse().unwrap());
