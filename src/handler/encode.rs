@@ -62,7 +62,7 @@ fn encode_webp(images: Vec<(DynamicImage, Delay)>) -> Result<WebPData, webp_anim
 pub fn encode_image(
     images: Vec<(DynamicImage, Delay)>,
     target_format: ImageFormat,
-    original_filename: String,
+    original_filename: (String, Option<String>),
 ) -> Result<ProxyImageResult, ()> {
     let mut bytes: Vec<u8> = Vec::new();
 
@@ -94,9 +94,14 @@ pub fn encode_image(
 
     // Correct filename with target extension
     let mut filename = original_filename;
-    let target_extension = format!(".{}", target_format.extensions_str()[0]);
-    if !filename.ends_with(target_extension.as_str()) {
-        filename = format!("{filename}{target_extension}");
+    let target_extension = &format!(".{}", target_format.extensions_str()[0]);
+    if !filename.0.ends_with(target_extension) {
+        filename.0 = format!("{}{target_extension}", filename.0);
+    }
+    if let Some(filename_encoded) = &filename.1 {
+        if !filename_encoded.ends_with(target_extension) {
+            filename.1 = Some(format!("{}{target_extension}", filename_encoded));
+        }
     }
 
     // Return with encoded bytes

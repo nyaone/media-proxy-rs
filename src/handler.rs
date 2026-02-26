@@ -18,7 +18,7 @@ use tracing::error;
 pub struct ProxyImageResult {
     pub bytes: Bytes,
     pub content_type: String,
-    pub filename: String,
+    pub filename: (String, Option<String>),
 }
 
 pub enum ProxyImageError {
@@ -132,12 +132,13 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 4: Encode into target format      */
     /******************************************/
-    encode::encode_image(
-        downloaded_image,
-        target_format,
-        downloaded_file.filename.to_string(),
-    )
-    .map_err(|_| ProxyImageError::BytesOnly(downloaded_file))
+    encode::encode_image(downloaded_image, target_format, downloaded_file.filename).map_err(|_| {
+        ProxyImageError::BytesOnly(DownloadedFile {
+            bytes: downloaded_file.bytes,
+            content_type: downloaded_file.content_type,
+            filename: ("".to_string(), None), // Omit
+        })
+    })
 }
 
 #[cfg(test)]
@@ -159,7 +160,10 @@ mod tests {
         if let Ok(image) = file {
             assert!(image.bytes.len() > 0);
             assert_eq!(image.content_type, "image/webp".to_string());
-            assert_eq!(image.filename, "LovelyFirefly_7.png.webp".to_string());
+            assert_eq!(
+                image.filename,
+                ("LovelyFirefly_7.png.webp".to_string(), None)
+            );
         }
     }
 
@@ -178,7 +182,7 @@ mod tests {
         if let Ok(image) = file {
             assert!(image.bytes.len() > 0);
             assert_eq!(image.content_type, "image/webp".to_string());
-            assert_eq!(image.filename, "yuexia_shy.gif.webp".to_string());
+            assert_eq!(image.filename, ("yuexia_shy.gif.webp".to_string(), None));
         }
     }
 }

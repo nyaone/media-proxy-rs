@@ -37,7 +37,7 @@ impl Clone for Downloader {
 pub struct DownloadedFile {
     pub bytes: Bytes,
     pub content_type: Option<String>,
-    pub filename: String,
+    pub filename: (String, Option<String>),
 }
 
 impl Downloader {
@@ -147,14 +147,16 @@ impl Downloader {
 
         // Set filename // todo: handle encoded filenames
         debug!("Getting filename...");
-        let mut filename = url.split('/').next_back().unwrap_or("unknown").to_string();
+        let mut filename_ascii = url.split('/').next_back().unwrap_or("unknown").to_string();
+        let mut filename_encoded: Option<String> = None;
         if let Some(content_disposition) = resp_headers.get(CONTENT_DISPOSITION) {
             let field_parts = content_disposition.to_str().unwrap().split(';');
             for part in field_parts {
                 let part = part.trim();
                 if let Some(value) = part.strip_prefix("filename=") {
-                    filename = value.trim_matches('"').to_string();
-                    break;
+                    filename_ascii = value.trim_matches('"').to_string();
+                } else if let Some(value) = part.strip_prefix("filename*=") {
+                    filename_encoded = Some(value.to_string());
                 }
             }
         }
@@ -177,7 +179,7 @@ impl Downloader {
         Ok(DownloadedFile {
             bytes: Bytes::from(limited_buf),
             content_type: ct,
-            filename,
+            filename: (filename_ascii, filename_encoded),
         })
     }
 }
@@ -199,7 +201,13 @@ mod tests {
         if let Ok(downloaded) = file {
             assert!(downloaded.bytes.len() > 0);
             assert_eq!(downloaded.content_type, Some("image/png".to_string()));
-            assert_eq!(downloaded.filename, "NyaOne_-_LOGO_-_256x_-_round.png");
+            assert_eq!(
+                downloaded.filename,
+                (
+                    "NyaOne_-_LOGO_-_256x_-_round.png".to_string(),
+                    Some("UTF-8''NyaOne%20-%20LOGO%20-%20256x%20-%20round.png".to_string())
+                )
+            );
         }
     }
 
