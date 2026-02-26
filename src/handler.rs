@@ -134,9 +134,8 @@ pub async fn proxy_image(
     /******************************************/
     encode::encode_image(downloaded_image, target_format, downloaded_file.filename).map_err(|_| {
         ProxyImageError::BytesOnly(DownloadedFile {
-            bytes: downloaded_file.bytes,
-            content_type: downloaded_file.content_type,
             filename: ("".to_string(), None), // Omit
+            ..downloaded_file
         })
     })
 }
