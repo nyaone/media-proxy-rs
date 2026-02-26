@@ -145,7 +145,7 @@ impl Downloader {
             }
         }
 
-        // Set filename // todo: handle encoded filenames
+        // Set filename
         debug!("Getting filename...");
         let mut filename_ascii = url.split('/').next_back().unwrap_or("unknown").to_string();
         let mut filename_encoded: Option<String> = None;
