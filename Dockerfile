@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.85.0
+ARG RUST_VERSION=1.93.1
 ARG APP_NAME=media-proxy-rs
 
 FROM rust:${RUST_VERSION}-alpine AS build
