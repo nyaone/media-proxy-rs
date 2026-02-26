@@ -16,8 +16,6 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use url::form_urlencoded;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 // We create some utility functions to make Empty and Full bodies
 // fit our broadened Response body type.
 
@@ -72,12 +70,16 @@ async fn handle(
                         CACHE_CONTROL,
                         "max-age=31536000, immutable".parse().unwrap(),
                     );
-                    response.headers_mut().insert(
-                        CONTENT_DISPOSITION,
-                        format!("inline; filename=\"{}\"", file.filename) // this implementation is temporary as it cannot handle encoded filenames (also refer to downloader) // todo
-                            .parse()
-                            .unwrap(),
-                    );
+
+                    let mut content_disposition =
+                        format!("inline; filename=\"{}\"", file.filename.0);
+                    if let Some(filename_encoded) = file.filename.1 {
+                        content_disposition =
+                            format!("{content_disposition}; filename*={filename_encoded}");
+                    }
+                    response
+                        .headers_mut()
+                        .insert(CONTENT_DISPOSITION, content_disposition.parse().unwrap());
                     response
                 }
                 Err(err) => match err {
@@ -107,7 +109,10 @@ async fn start_server(
     downloader: Downloader,
     addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("MediaProxyRS@NyaOne #{VERSION} starting...");
+    info!(
+        "MediaProxyRS@NyaOne #{} starting...",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
     let listener = TcpListener::bind(addr).await?;

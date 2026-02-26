@@ -4,9 +4,9 @@ use tracing::{error, warn};
 
 pub enum DownloadImageError<'a> {
     MissingURL,
-    MissingUA,
     RecursiveProxy,
     DownloadErrorOversize(&'a String),
+    DownloadErrorInvalidUrl,
     DownloadErrorInvalidStatus(StatusCode),
     DownloadErrorRequest,
     NotAnImage(DownloadedFile),
@@ -26,22 +26,18 @@ pub async fn download_image<'a>(
     }
 
     // Check if UserAgent is valid
-    if ua.is_none() {
-        // Missing UserAgent
-        warn!("Request missing UserAgent");
-        return Err(DownloadImageError::MissingUA);
-    }
-
-    let ua = ua.unwrap(); // Shadow the parameter value
-    if ua.to_lowercase().contains("misskey/") {
-        // Recursive proxying
-        warn!("Recursive proxying");
-        return Err(DownloadImageError::RecursiveProxy);
+    if let Some(ua) = ua {
+        if ua.to_lowercase().contains("misskey/") || ua.to_lowercase().contains("misskeymediaproxy")
+        {
+            // Recursive proxying
+            warn!("Recursive proxying");
+            return Err(DownloadImageError::RecursiveProxy);
+        }
     }
 
     // Start download
     let url = url.unwrap();
-    let downloaded_file = match downloader.download_file(url, host, ua).await {
+    let downloaded_file = match downloader.download_file(url, host).await {
         Ok(b) => b,
         Err(e) => {
             return Err(match e {
@@ -49,6 +45,10 @@ pub async fn download_image<'a>(
                     // too large to process, redirect instead
                     warn!("File too large: {url}");
                     DownloadImageError::DownloadErrorOversize(url)
+                }
+                FileDownloadError::InvalidUrl => {
+                    warn!("Invalid url: {url}");
+                    DownloadImageError::DownloadErrorInvalidUrl
                 }
                 FileDownloadError::InvalidStatusCode(status_code) => {
                     warn!("Invalid status code: {url}, {status_code}");

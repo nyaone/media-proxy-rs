@@ -18,7 +18,7 @@ use tracing::error;
 pub struct ProxyImageResult {
     pub bytes: Bytes,
     pub content_type: String,
-    pub filename: String,
+    pub filename: (String, Option<String>),
 }
 
 pub enum ProxyImageError {
@@ -44,7 +44,7 @@ pub async fn proxy_image(
         download::download_image(downloader, query.get("url"), query.get("host"), ua)
             .await
             .map_err(|err| match err {
-                DownloadImageError::MissingURL | DownloadImageError::MissingUA => {
+                DownloadImageError::MissingURL => {
                     ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
                 }
                 DownloadImageError::RecursiveProxy => {
@@ -52,6 +52,9 @@ pub async fn proxy_image(
                 }
                 DownloadImageError::DownloadErrorOversize(url) => {
                     ProxyImageError::Redirectable(url.to_string())
+                }
+                DownloadImageError::DownloadErrorInvalidUrl => {
+                    ProxyImageError::StatusCodeOnly(StatusCode::BAD_REQUEST)
                 }
                 DownloadImageError::DownloadErrorInvalidStatus(status_code) => {
                     ProxyImageError::StatusCodeOnly(status_code)
@@ -129,12 +132,12 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 4: Encode into target format      */
     /******************************************/
-    encode::encode_image(
-        downloaded_image,
-        target_format,
-        downloaded_file.filename.to_string(),
-    )
-    .map_err(|_| ProxyImageError::BytesOnly(downloaded_file))
+    encode::encode_image(downloaded_image, target_format, downloaded_file.filename).map_err(|_| {
+        ProxyImageError::BytesOnly(DownloadedFile {
+            filename: ("".to_string(), None), // Omit
+            ..downloaded_file
+        })
+    })
 }
 
 #[cfg(test)]
@@ -156,7 +159,10 @@ mod tests {
         if let Ok(image) = file {
             assert!(image.bytes.len() > 0);
             assert_eq!(image.content_type, "image/webp".to_string());
-            assert_eq!(image.filename, "LovelyFirefly_7.png.webp".to_string());
+            assert_eq!(
+                image.filename,
+                ("LovelyFirefly_7.png.webp".to_string(), None)
+            );
         }
     }
 
@@ -175,7 +181,7 @@ mod tests {
         if let Ok(image) = file {
             assert!(image.bytes.len() > 0);
             assert_eq!(image.content_type, "image/webp".to_string());
-            assert_eq!(image.filename, "yuexia_shy.gif.webp".to_string());
+            assert_eq!(image.filename, ("yuexia_shy.gif.webp".to_string(), None));
         }
     }
 }

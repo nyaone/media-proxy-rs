@@ -8,12 +8,6 @@
 
 可以从 ghcr 拉取容器镜像
 
-测试版本（跟随 master 主分支更新）：
-
-```shell
-docker pull ghcr.io/nyaone/media-proxy-rs:master
-```
-
 稳定版本（但因为目前还在开发初期，不能保证稳定）：
 
 ```shell
@@ -27,6 +21,7 @@ docker pull ghcr.io/nyaone/media-proxy-rs:latest
 - `RUST_LOG` 日志等级，容器模式默认 `error`
 - `LISTEN` 监听的地址和端口，默认是 `0.0.0.0:3000` （容器监听来自外部请求的 3000 端口）
 - `SIZE_LIMIT` 处理文件的大小限制，超过这个大小限制的会被直接重定向而非代理，单位是 Byte ，默认是 100M `100000000`
+- `USER_AGENT` 针对有防盗链实例重试使用的 User-Agent ，默认不提供
 
 ## 待办事项
 

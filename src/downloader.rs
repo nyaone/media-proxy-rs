@@ -3,10 +3,15 @@ use futures_util::stream::StreamExt;
 use http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, REFERER, USER_AGENT};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
-use tracing::debug;
+use std::env;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, info};
+use url::Url;
 
 pub enum FileDownloadError {
     Oversize,
+    InvalidUrl,
     InvalidStatusCode(StatusCode),
     RequestError(reqwest::Error),
 }
@@ -16,6 +21,7 @@ const DEFAULT_SIZE_LIMIT: u64 = 100_000_000; // 100MB
 pub struct Downloader {
     client: Client,
     size_limit: u64,
+    troublesome_instances: Arc<RwLock<Vec<String>>>,
 }
 
 impl Clone for Downloader {
@@ -23,6 +29,7 @@ impl Clone for Downloader {
         Self {
             client: self.client.clone(),
             size_limit: self.size_limit,
+            troublesome_instances: self.troublesome_instances.clone(),
         }
     }
 }
@@ -30,7 +37,7 @@ impl Clone for Downloader {
 pub struct DownloadedFile {
     pub bytes: Bytes,
     pub content_type: Option<String>,
-    pub filename: String,
+    pub filename: (String, Option<String>),
 }
 
 impl Downloader {
@@ -38,6 +45,7 @@ impl Downloader {
         Self {
             client: Client::new(),
             size_limit: size_limit.unwrap_or(DEFAULT_SIZE_LIMIT),
+            troublesome_instances: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -45,44 +53,73 @@ impl Downloader {
         &self,
         url: &str,
         host: Option<&String>,
-        ua: &str,
     ) -> Result<DownloadedFile, FileDownloadError> {
-        debug!("Downloading file: {url}, Host: {host:?}, UserAgent: {ua}");
+        debug!("Downloading file: {url}");
 
-        let mut default_headers = HeaderMap::new();
-        default_headers.insert(USER_AGENT, ua.parse().unwrap());
+        // Get target host of instance
+        let parsed_url = Url::parse(url).map_err(|_| FileDownloadError::InvalidUrl)?;
+        let target_host = parsed_url
+            .host_str()
+            .ok_or(FileDownloadError::InvalidUrl)?
+            .to_string();
 
-        // First try: direct download
-        debug!("Trying direct download...");
-        let mut resp = self
-            .client
-            .get(url)
-            .headers(default_headers)
-            .send()
+        let mut resp: Option<reqwest::Response> = None;
+
+        let worth_first_try = !self
+            .troublesome_instances
+            .read()
             .await
-            .map_err(FileDownloadError::RequestError)?;
+            .contains(&target_host);
 
-        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified
-        if resp.status().is_client_error() {
-            debug!(
-                "Direct download failed {} {}, retrying with host specified",
-                resp.status(),
-                url
-            );
-            if let Some(host) = host {
-                let mut additional_headers = HeaderMap::new();
-                additional_headers.insert(USER_AGENT, ua.parse().unwrap());
-                additional_headers.insert(REFERER, host.parse().unwrap());
+        let default_ua = format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION"));
 
-                resp = self
-                    .client
+        if worth_first_try {
+            // First try: direct download
+            let mut default_headers = HeaderMap::new();
+            default_headers.insert(USER_AGENT, default_ua.parse().unwrap());
+
+            debug!("Trying direct download...");
+            resp = Some(
+                self.client
                     .get(url)
-                    .headers(additional_headers)
+                    .headers(default_headers)
                     .send()
                     .await
-                    .map_err(FileDownloadError::RequestError)?;
-            }
+                    .map_err(FileDownloadError::RequestError)?,
+            );
         }
+
+        // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
+        if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
+            let retry_ua = env::var("USER_AGENT").unwrap_or(default_ua);
+
+            debug!("Direct download failed, retrying with Host: {host:?}, UA: {retry_ua}",);
+
+            let mut retry_headers = HeaderMap::new();
+
+            retry_headers.insert(USER_AGENT, retry_ua.parse().unwrap());
+
+            if let Some(host) = host {
+                retry_headers.insert(REFERER, format!("https://{}/", host).parse().unwrap());
+            }
+
+            resp = Some(
+                self.client
+                    .get(url)
+                    .headers(retry_headers)
+                    .send()
+                    .await
+                    .map_err(FileDownloadError::RequestError)?,
+            );
+
+            if resp.as_ref().is_some_and(|r| r.status().is_success()) && worth_first_try {
+                // It is really a nasty host
+                info!("Host {target_host} marked as troublesome.");
+                self.troublesome_instances.write().await.push(target_host);
+            } // else: the target host might be dead or already marked
+        }
+
+        let resp = resp.unwrap();
 
         // Check status code
         debug!("Download finish, checking status code...");
@@ -108,16 +145,18 @@ impl Downloader {
             }
         }
 
-        // Set filename // todo: handle encoded filenames
+        // Set filename
         debug!("Getting filename...");
-        let mut filename = url.split('/').next_back().unwrap_or("unknown").to_string();
+        let mut filename_ascii = url.split('/').next_back().unwrap_or("unknown").to_string();
+        let mut filename_encoded: Option<String> = None;
         if let Some(content_disposition) = resp_headers.get(CONTENT_DISPOSITION) {
             let field_parts = content_disposition.to_str().unwrap().split(';');
             for part in field_parts {
                 let part = part.trim();
                 if let Some(value) = part.strip_prefix("filename=") {
-                    filename = value.trim_matches('"').to_string();
-                    break;
+                    filename_ascii = value.trim_matches('"').to_string();
+                } else if let Some(value) = part.strip_prefix("filename*=") {
+                    filename_encoded = Some(value.to_string());
                 }
             }
         }
@@ -140,7 +179,7 @@ impl Downloader {
         Ok(DownloadedFile {
             bytes: Bytes::from(limited_buf),
             content_type: ct,
-            filename,
+            filename: (filename_ascii, filename_encoded),
         })
     }
 }
@@ -156,14 +195,19 @@ mod tests {
             .download_file(
                 "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
-                "MediaProxyRS@Debug",
             )
             .await;
         assert!(file.is_ok());
         if let Ok(downloaded) = file {
             assert!(downloaded.bytes.len() > 0);
             assert_eq!(downloaded.content_type, Some("image/png".to_string()));
-            assert_eq!(downloaded.filename, "NyaOne_-_LOGO_-_256x_-_round.png");
+            assert_eq!(
+                downloaded.filename,
+                (
+                    "NyaOne_-_LOGO_-_256x_-_round.png".to_string(),
+                    Some("UTF-8''NyaOne%20-%20LOGO%20-%20256x%20-%20round.png".to_string())
+                )
+            );
         }
     }
 
@@ -174,7 +218,6 @@ mod tests {
             .download_file(
                 "https://public.nyaone-object-storage.com/nyaone/ff02042e-524e-48e8-bb27-17621d96b13a.png",
                 None,
-                "MediaProxyRS@Debug",
             )
             .await
         {
