@@ -9,7 +9,7 @@ bench = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = [ "server", "anim" ]
+default = []
 anim = ["dep:webp-animation"]
 server = ["dep:tokio", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
 
@@ -44,6 +44,7 @@ tokio = { version = "1", features = ["full"], optional = true }
 hyper = { version = "1", features = ["full"], optional = true }
 hyper-util = { version = "0.1", features = ["full"], optional = true }
 http-body-util = { version = "0.1", optional = true }
+socket2 = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { version = "0.12", features = ["stream"] }
