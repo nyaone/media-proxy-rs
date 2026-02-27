@@ -155,31 +155,87 @@ async fn start_unix_socket_listener(
 
     info!("Server listening on Unix socket: {}", socket_path);
 
-    unix_accept_loop(listener, downloader).await
+    // Run accept loop, allowing graceful shutdown via signals
+    unix_accept_loop_with_signals(listener, downloader, socket_path).await
 }
 
-/// Accept loop for Unix socket listener
-async fn unix_accept_loop(
+/// Accept loop for Unix socket with signal handling
+async fn unix_accept_loop_with_signals(
     listener: UnixListener,
     downloader: Downloader,
+    socket_path: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let socket_path = socket_path.to_string();
+    
     loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-        let downloader = downloader.clone();
-
-        tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(|req| crate::handler::handle(
-                    &downloader,
-                    req,
-                )))
-                .await
+        // Setup SIGTERM handler for this iteration
+        let sigterm_future = async {
+            #[cfg(unix)]
             {
-                error!("Error serving connection: {:?}", err);
+                if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    let _ = sig.recv().await;
+                }
             }
-        });
+            #[cfg(not(unix))]
+            {
+                std::future::pending::<()>().await;
+            }
+        };
+
+        tokio::select! {
+            accept_result = listener.accept() => {
+                let (stream, _) = accept_result?;
+                let io = TokioIo::new(stream);
+                let downloader = downloader.clone();
+
+                tokio::task::spawn(async move {
+                    if let Err(err) = http1::Builder::new()
+                        .serve_connection(io, service_fn(|req| crate::handler::handle(
+                            &downloader,
+                            req,
+                        )))
+                        .await
+                    {
+                        error!("Error serving connection: {:?}", err);
+                    }
+                });
+            }
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutdown signal received (SIGINT), cleaning up...");
+                cleanup_unix_socket(&socket_path)?;
+                return Ok(());
+            }
+            _ = sigterm_future => {
+                info!("Shutdown signal received (SIGTERM), cleaning up...");
+                cleanup_unix_socket(&socket_path)?;
+                return Ok(());
+            }
+        }
     }
+}
+
+/// Clean up Unix socket and lock file
+fn cleanup_unix_socket(socket_path: &str) -> io::Result<()> {
+    let path = Path::new(socket_path);
+    
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| {
+            error!("Failed to remove socket '{}': {}", socket_path, e);
+            e
+        })?;
+        info!("Socket file cleaned up: {}", socket_path);
+    }
+
+    let lock_path = format!("{}.lock", socket_path);
+    if Path::new(&lock_path).exists() {
+        fs::remove_file(&lock_path).map_err(|e| {
+            error!("Failed to remove lock file '{}': {}", lock_path, e);
+            e
+        })?;
+        info!("Lock file cleaned up: {}", lock_path);
+    }
+
+    Ok(())
 }
 
 /// Check if Unix socket is in use or stale
