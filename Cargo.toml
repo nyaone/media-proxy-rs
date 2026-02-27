@@ -9,7 +9,7 @@ bench = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = [ "anim", "server" ]
 anim = ["dep:webp-animation"]
 server = ["dep:tokio", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
 
