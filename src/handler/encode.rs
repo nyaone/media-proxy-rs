@@ -93,16 +93,23 @@ pub fn encode_image(
     }?;
 
     // Correct filename with target extension
-    let mut filename: (String, Option<String>) = original_filename.clone();
     let target_extension = &format!(".{}", target_format.extensions_str()[0]);
-    if !filename.0.ends_with(target_extension) {
-        filename.0 = format!("{}{target_extension}", filename.0);
-    }
-    if let Some(filename_encoded) = &filename.1 {
-        if !filename_encoded.ends_with(target_extension) {
-            filename.1 = Some(format!("{}{target_extension}", filename_encoded));
-        }
-    }
+    let filename: (String, Option<String>) = (
+        if original_filename.0.ends_with(target_extension) {
+            original_filename.0.clone()
+        } else {
+            format!("{}{target_extension}", original_filename.0)
+        },
+        if let Some(filename_encoded) = &original_filename.1 {
+            Some(if filename_encoded.ends_with(target_extension) {
+                filename_encoded.clone()
+            } else {
+                format!("{}{target_extension}", filename_encoded)
+            })
+        } else {
+            None
+        },
+    );
 
     // Return with encoded bytes
     Ok(ProxyImageResult {
