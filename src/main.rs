@@ -35,14 +35,30 @@ pub fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
 
 #[inline]
 pub fn response_raw(
-    (bytes, ct): (Bytes, Option<String>),
+    bytes: Bytes,
+    ct: Option<String>,
+    filename: (String, Option<String>),
 ) -> Response<BoxBody<Bytes, hyper::Error>> {
+    // Fill bytes
     let mut response = Response::new(full(bytes));
+
+    // Fill content-type
     if let Some(ct) = ct {
         response
             .headers_mut()
             .insert(CONTENT_TYPE, ct.parse().unwrap());
     }
+
+    // Fill content-disposition
+    let mut content_disposition = format!("inline; filename=\"{}\"", filename.0);
+    if let Some(filename_encoded) = filename.1 {
+        content_disposition = format!("{content_disposition}; filename*={filename_encoded}");
+    }
+    response
+        .headers_mut()
+        .insert(CONTENT_DISPOSITION, content_disposition.parse().unwrap());
+
+    // Return
     response
 }
 
@@ -65,21 +81,13 @@ async fn handle(
             .await
             {
                 Ok(file) => {
-                    let mut response = response_raw((file.bytes, Some(file.content_type)));
+                    let mut response =
+                        response_raw(file.bytes, Some(file.content_type), file.filename);
                     response.headers_mut().insert(
                         CACHE_CONTROL,
                         "max-age=31536000, immutable".parse().unwrap(),
                     );
 
-                    let mut content_disposition =
-                        format!("inline; filename=\"{}\"", file.filename.0);
-                    if let Some(filename_encoded) = file.filename.1 {
-                        content_disposition =
-                            format!("{content_disposition}; filename*={filename_encoded}");
-                    }
-                    response
-                        .headers_mut()
-                        .insert(CONTENT_DISPOSITION, content_disposition.parse().unwrap());
                     response
                 }
                 Err(err) => match err {
@@ -97,7 +105,7 @@ async fn handle(
                         response
                     }
                     ProxyImageError::BytesOnly(file) => {
-                        response_raw((file.bytes, file.content_type))
+                        response_raw(file.bytes, file.content_type, file.filename)
                     }
                 },
             },

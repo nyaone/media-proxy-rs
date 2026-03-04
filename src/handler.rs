@@ -132,12 +132,8 @@ pub async fn proxy_image(
     /******************************************/
     /* Step 4: Encode into target format      */
     /******************************************/
-    encode::encode_image(downloaded_image, target_format, downloaded_file.filename).map_err(|_| {
-        ProxyImageError::BytesOnly(DownloadedFile {
-            filename: ("".to_string(), None), // Omit
-            ..downloaded_file
-        })
-    })
+    encode::encode_image(downloaded_image, target_format, &downloaded_file.filename)
+        .map_err(|_| ProxyImageError::BytesOnly(downloaded_file))
 }
 
 #[cfg(test)]
