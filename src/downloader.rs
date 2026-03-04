@@ -5,9 +5,11 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use std::env;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, info};
 use url::Url;
+
+#[cfg(feature = "server")]
+use tokio::sync::RwLock;
 
 pub enum FileDownloadError {
     Oversize,
@@ -21,6 +23,8 @@ const DEFAULT_SIZE_LIMIT: u64 = 100_000_000; // 100MB
 pub struct Downloader {
     client: Client,
     size_limit: u64,
+
+    #[cfg(feature = "server")]
     troublesome_instances: Arc<RwLock<Vec<String>>>,
 }
 
@@ -29,6 +33,8 @@ impl Clone for Downloader {
         Self {
             client: self.client.clone(),
             size_limit: self.size_limit,
+
+            #[cfg(feature = "server")]
             troublesome_instances: self.troublesome_instances.clone(),
         }
     }
@@ -45,6 +51,8 @@ impl Downloader {
         Self {
             client: Client::new(),
             size_limit: size_limit.unwrap_or(DEFAULT_SIZE_LIMIT),
+
+            #[cfg(feature = "server")]
             troublesome_instances: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -65,11 +73,15 @@ impl Downloader {
 
         let mut resp: Option<reqwest::Response> = None;
 
+        #[cfg(feature = "server")]
         let worth_first_try = !self
             .troublesome_instances
             .read()
             .await
             .contains(&target_host);
+
+        #[cfg(not(feature = "server"))]
+        let worth_first_try = true;
 
         let default_ua = format!("MisskeyMediaProxy/{}~rs", env!("CARGO_PKG_VERSION"));
 
@@ -90,6 +102,7 @@ impl Downloader {
         }
 
         // if is 4xx error (e.g., 403 for hotlink protect), retry with host specified & request UA
+        #[cfg(feature = "server")]
         if !worth_first_try || resp.as_ref().is_some_and(|r| r.status().is_client_error()) {
             let retry_ua = env::var("USER_AGENT").unwrap_or(default_ua);
 
