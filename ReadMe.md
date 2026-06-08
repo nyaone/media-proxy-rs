@@ -22,7 +22,3 @@ docker pull ghcr.io/nyaone/media-proxy-rs:latest
 - `LISTEN` 监听的地址和端口，默认是 `[::]:3000` （监听双栈模式下的 3000 端口）
 - `SIZE_LIMIT` 处理文件的大小限制，超过这个大小限制的会被直接重定向而非代理，单位是 Byte ，默认是 100M `100000000`
 - `USER_AGENT` 针对有防盗链实例重试使用的 User-Agent ，默认不提供
-
-## 待办事项
-
-- 完成 badge 模式下的图片处理

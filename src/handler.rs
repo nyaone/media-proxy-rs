@@ -1,14 +1,16 @@
+mod badge_converter;
 mod decode;
 mod download;
 mod encode;
 mod processors;
 
 use crate::downloader::{DownloadedFile, Downloader};
+use crate::handler::badge_converter::convert_to_badge;
 use crate::handler::decode::DecodeImageError;
 use bytes::Bytes;
 use download::DownloadImageError;
 use http::StatusCode;
-use image::ImageFormat;
+use image::{Delay, ImageFormat};
 use processors::{shrink_inside_vec, shrink_outside_vec};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -114,15 +116,11 @@ pub async fn proxy_image(
     } else if query.contains_key("preview") {
         downloaded_image = shrink_inside_vec(downloaded_image, 200, 200);
     } else if query.contains_key("badge") {
-        // Here's the thing: I'm not sure what this function is for,
-        // and neither can I implement this easily as many advanced operations
-        // (resize with position fit, normalize, flatten, b-w color space, entropy calc)
-        // are involved.
-        // I've tried to let AI to implement, but the result turned out to be not good enough.
-        // This should mean something, but looks not that important for now.
-        // So I'll leave a wrong result here to see if something really breaks.
-        // todo: implement as https://github.com/misskey-dev/misskey/blob/56cc89b/packages/backend/src/server/FileServerService.ts#L386-L415
-        return Err(ProxyImageError::StatusCodeOnly(StatusCode::NOT_IMPLEMENTED));
+        downloaded_image = vec![(
+            convert_to_badge(&downloaded_image[0].0)
+                .map_err(|_| ProxyImageError::StatusCodeOnly(StatusCode::NOT_FOUND))?,
+            Delay::from_numer_denom_ms(0, 1),
+        )];
     };
 
     // image crate can't process SVG files here,
