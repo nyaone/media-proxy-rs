@@ -20,7 +20,7 @@ required-features = ["server"]
 [dependencies]
 # image processing
 image = { version = "0.25", features = ["default-formats"]}
-webp-animation = { version = "0.9", optional = true }
+webp-animation = { version = "0.10", optional = true }
 
 # utils
 url = "2"
@@ -39,7 +39,7 @@ hyper-util = { version = "0.1", features = ["full"], optional = true }
 http-body-util = { version = "0.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.13", features = ["stream"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { version = "0.12", features = ["default", "stream"] }
+reqwest = { version = "0.13", features = ["default", "stream"] }
